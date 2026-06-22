@@ -105,4 +105,26 @@ public enum Command: CaseIterable {
         case .inputDP:     return "Input → DisplayPort"
         }
     }
+
+    // MARK: - Default global hotkey
+
+    /// The single character of this command's default global hotkey. The full
+    /// chord is always ⌃⌥⌘ + this key (see `shortcutDisplay`). This is the single
+    /// source of truth shared by the Carbon hotkey registration and the menu's
+    /// shortcut hint, so they can never drift apart.
+    public var shortcutKey: Character {
+        switch self {
+        case .inputTypeC:  return "C"
+        case .inputDP:     return "D"
+        case .kvmUSBC:     return "K"
+        case .kvmUpstream: return "U"
+        case .pbpOn:       return "P"
+        case .pbpOff:      return "O"
+        }
+    }
+
+    /// The human-readable chord shown in the menu, e.g. `⌃⌥⌘D`.
+    public var shortcutDisplay: String {
+        "⌃⌥⌘\(shortcutKey)"
+    }
 }

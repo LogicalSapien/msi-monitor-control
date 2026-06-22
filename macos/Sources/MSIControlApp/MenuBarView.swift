@@ -19,10 +19,26 @@ struct MenuBarView: View {
 
         Divider()
 
-        // Only show available commands
+        // Non-clickable header so the chords below are obviously shortcuts.
+        Text("Actions (global shortcuts)")
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .padding(.horizontal)
+
+        // Only show available commands. Each row shows its global hotkey chord
+        // (⌃⌥⌘ + key) next to the label so newcomers can see and learn them.
+        // The chord text comes from `command.shortcutDisplay`, the same source
+        // the Carbon hotkey registration uses, so the hint always matches.
         ForEach(Command.allCases.filter(\.isAvailable), id: \.self) { command in
-            Button(command.label) {
+            Button {
                 deviceState.send(command)
+            } label: {
+                HStack {
+                    Text(command.label)
+                    Spacer()
+                    Text(command.shortcutDisplay)
+                        .foregroundStyle(.secondary)
+                }
             }
             .disabled(!deviceState.isConnected)
         }
