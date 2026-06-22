@@ -56,10 +56,10 @@ internal sealed class TrayApp : ApplicationContext
         menu.Items.Add(MakeItem("PBP On",         CommandKind.PbpOn,     "Ctrl+Alt+P"));
         menu.Items.Add(MakeItem("PBP Off",         CommandKind.PbpOff,    "Ctrl+Alt+O"));
         menu.Items.Add(new ToolStripSeparator());
-        menu.Items.Add(MakeItem("KVM → USB-C",    CommandKind.KvmUsbC,   "Ctrl+Alt+U"));
-        menu.Items.Add(MakeItem("KVM → Upstream", CommandKind.KvmUpstream, "Ctrl+Alt+K"));
+        menu.Items.Add(MakeItem("KVM → USB-C",    CommandKind.KvmUsbC,   "Ctrl+Alt+K"));
+        menu.Items.Add(MakeItem("KVM → Upstream", CommandKind.KvmUpstream, "Ctrl+Alt+U"));
         menu.Items.Add(new ToolStripSeparator());
-        menu.Items.Add(MakeItem("Input → Type-C", CommandKind.InputTypeC, "Ctrl+Alt+T"));
+        menu.Items.Add(MakeItem("Input → Type-C", CommandKind.InputTypeC, "Ctrl+Alt+C"));
         menu.Items.Add(MakeItem("Input → DP",     CommandKind.InputDp,    "Ctrl+Alt+D"));
         menu.Items.Add(new ToolStripSeparator());
 

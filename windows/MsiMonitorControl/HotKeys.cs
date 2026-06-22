@@ -21,12 +21,12 @@ namespace MsiMonitorControl;
 ///
 /// MUST be constructed on the UI (STA) thread that calls <c>Application.Run</c>.
 ///
-/// Default hotkeys (Ctrl+Alt+*):
+/// Default hotkeys (Ctrl+Alt+*) — kept identical to the macOS app:
 ///   Ctrl+Alt+P = PBP On
 ///   Ctrl+Alt+O = PBP Off
-///   Ctrl+Alt+U = KVM → USB-C
-///   Ctrl+Alt+K = KVM → Upstream
-///   Ctrl+Alt+T = Input → Type-C
+///   Ctrl+Alt+K = KVM → USB-C
+///   Ctrl+Alt+U = KVM → Upstream
+///   Ctrl+Alt+C = Input → Type-C
 ///   Ctrl+Alt+D = Input → DP
 /// </summary>
 internal sealed class HotKeys : IMessageFilter, IDisposable
@@ -42,7 +42,7 @@ internal sealed class HotKeys : IMessageFilter, IDisposable
     private const uint VkO = 0x4F;
     private const uint VkU = 0x55;
     private const uint VkK = 0x4B;
-    private const uint VkT = 0x54;
+    private const uint VkC = 0x43;
     private const uint VkD = 0x44;
 
     [DllImport("user32.dll", SetLastError = true)]
@@ -59,9 +59,9 @@ internal sealed class HotKeys : IMessageFilter, IDisposable
     {
         (1, VkP, 'P', CommandKind.PbpOn),
         (2, VkO, 'O', CommandKind.PbpOff),
-        (3, VkU, 'U', CommandKind.KvmUsbC),
-        (4, VkK, 'K', CommandKind.KvmUpstream),
-        (5, VkT, 'T', CommandKind.InputTypeC),
+        (3, VkK, 'K', CommandKind.KvmUsbC),
+        (4, VkU, 'U', CommandKind.KvmUpstream),
+        (5, VkC, 'C', CommandKind.InputTypeC),
         (6, VkD, 'D', CommandKind.InputDp),
     };
 
