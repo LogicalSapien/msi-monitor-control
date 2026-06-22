@@ -105,8 +105,23 @@ public struct HotkeyChord: Codable, Equatable, Hashable, Sendable {
 
     public init(mods: Set<HotkeyModifier>, key: String) {
         self.mods = mods
-        self.key = key.uppercased()
+        self.key = HotkeyChord.normaliseKey(key)
     }
+
+    /// Canonicalises a key string: single letters/digits → uppercase; named keys
+    /// (currently just "Space") → their canonical spelling. Used so `"space"`,
+    /// `"SPACE"`, `"Space"` all compare equal and serialise identically.
+    public static func normaliseKey(_ key: String) -> String {
+        if namedKeys.contains(where: { $0.caseInsensitiveCompare(key) == .orderedSame }) {
+            return namedKeys.first { $0.caseInsensitiveCompare(key) == .orderedSame }!
+        }
+        return key.uppercased()
+    }
+
+    /// Named (non-character) keys we allow as a base key, beyond A–Z / 0–9. Kept
+    /// small and explicit — each needs a keycode-table entry in every app
+    /// (SETTINGS.md §3.4). Currently just Space (for the quick-launcher palette).
+    public static let namedKeys: [String] = ["Space"]
 
     enum CodingKeys: String, CodingKey { case mods, key }
 
@@ -116,21 +131,23 @@ public struct HotkeyChord: Codable, Equatable, Hashable, Sendable {
         // HotkeyModifier.init). Unknown tokens throw, which the loader treats as a
         // malformed entry to drop (see HotkeyConfig.load).
         let modArray = try c.decode([HotkeyModifier].self, forKey: .mods)
-        let key = try c.decode(String.self, forKey: .key).uppercased()
-        // Enforce exactly one A–Z / 0–9 base key (SETTINGS.md §3.3). A hand-edited
-        // "AB" or a non-ASCII char must NOT be accepted — Carbon would silently use
-        // only the first char, desyncing the display from the registered chord.
+        let key = HotkeyChord.normaliseKey(try c.decode(String.self, forKey: .key))
+        // Enforce a single A–Z/0–9 char OR a recognised named key (SETTINGS.md §3.4).
+        // A hand-edited "AB" or a non-ASCII char must NOT be accepted — Carbon would
+        // silently use only the first char, desyncing display from the registered chord.
         guard HotkeyChord.isValidKey(key) else {
             throw DecodingError.dataCorrupted(.init(
                 codingPath: c.codingPath,
-                debugDescription: "Invalid hotkey key '\(key)' — must be a single A–Z or 0–9 character"))
+                debugDescription: "Invalid hotkey key '\(key)' — must be one A–Z/0–9 char or a named key (\(HotkeyChord.namedKeys.joined(separator: ", ")))"))
         }
         self.mods = Set(modArray)
         self.key = key
     }
 
-    /// True iff `key` is exactly one character in `A`–`Z` or `0`–`9` (SETTINGS.md §3.3).
+    /// True iff `key` is exactly one `A`–`Z`/`0`–`9` character OR a recognised named
+    /// key (SETTINGS.md §3.4). `key` is assumed already normalised.
     public static func isValidKey(_ key: String) -> Bool {
+        if namedKeys.contains(key) { return true }
         guard key.count == 1, let ch = key.first else { return false }
         return (ch >= "A" && ch <= "Z") || (ch >= "0" && ch <= "9")
     }
@@ -151,7 +168,9 @@ public struct HotkeyChord: Codable, Equatable, Hashable, Sendable {
         if mods.contains(.option)  { s += "⌥" }
         if mods.contains(.shift)   { s += "⇧" }
         if mods.contains(.command) { s += "⌘" }
-        return s + key
+        // Named keys render as their word (e.g. "Space") rather than a mashed glyph;
+        // single chars append directly (⌃⇧⌘C).
+        return HotkeyChord.namedKeys.contains(key) ? "\(s) \(key)" : s + key
     }
 }
 
@@ -206,17 +225,19 @@ public struct HotkeyConfig: Codable, Equatable, Sendable {
 
     // MARK: Defaults
 
-    /// The built-in default config: `cmdShiftCtrl` preset (Mac ⌃⇧⌘), default keys
-    /// from each available command, UNKNOWN-payload commands left unbound (empty
-    /// array). This is what ships on first run and what we fall back to (§4).
+    /// The built-in default config: `cmdShiftCtrl` preset (Mac ⌃⇧⌘). A command gets
+    /// a seeded default chord iff it has a `defaultKey`; commands with `defaultKey ==
+    /// nil` (the PBP/PIP modes — menu-only, user-assignable) ship UNBOUND (`[]`), as
+    /// do any UNKNOWN-payload commands. This is what ships on first run and what we
+    /// fall back to (§4).
     public static func makeDefault() -> HotkeyConfig {
         let mods: Set<HotkeyModifier> = HotkeyPreset.cmdShiftCtrl.macModifiers ?? [.control, .shift, .command]
         var bindings: [String: [HotkeyChord]] = [:]
         for command in Command.allCases {
-            if command.isAvailable {
-                bindings[command.actionId] = [HotkeyChord(mods: mods, key: String(command.defaultKey))]
+            if command.isAvailable, let key = command.defaultKey {
+                bindings[command.actionId] = [HotkeyChord(mods: mods, key: key)]
             } else {
-                // UNKNOWN payload → no chord until reverse-engineered.
+                // No default chord (menu-only, or UNKNOWN payload). Still assignable.
                 bindings[command.actionId] = []
             }
         }
@@ -226,7 +247,10 @@ public struct HotkeyConfig: Codable, Equatable, Sendable {
     /// The canonical actionId order for serialisation (SETTINGS.md §3.6). Fixed by
     /// contract; both apps emit `bindings` in exactly this sequence.
     public static let canonicalActionOrder: [String] = [
-        "inputTypeC", "inputDP", "kvmUSBC", "kvmUpstream", "kvmAuto", "pbpOn", "pbpOff",
+        "inputHDMI1", "inputHDMI2", "inputTypeC", "inputDP",
+        "kvmUSBC", "kvmUpstream", "kvmAuto",
+        "pbpOff", "pbpPIP", "pbpOn",
+        "showLauncher",
     ]
 
     // MARK: File location
@@ -366,8 +390,11 @@ public struct HotkeyConfig: Codable, Equatable, Sendable {
     private static func chordFromAny(_ value: Any) -> HotkeyChord? {
         guard let dict = value as? [String: Any],
               let rawMods = dict["mods"] as? [String],
-              let rawKey = (dict["key"] as? String)?.uppercased(),
-              HotkeyChord.isValidKey(rawKey) else { return nil }
+              let rawKeyString = dict["key"] as? String else { return nil }
+        // Normalise (letters→upper, named keys→canonical) BEFORE validating, so a
+        // "Space"/"space" named key is accepted (not blind-uppercased to "SPACE").
+        let rawKey = HotkeyChord.normaliseKey(rawKeyString)
+        guard HotkeyChord.isValidKey(rawKey) else { return nil }
         var mods: Set<HotkeyModifier> = []
         for token in rawMods {
             switch token {

@@ -20,6 +20,18 @@ internal sealed class TrayApp : ApplicationContext
     private readonly HotKeys _hotKeys;
     private HotkeyConfig _config;
 
+    // Live status (v0.2.2): the last command THIS app sent in each group, this session only.
+    // NOT persisted — the monitor cannot report its own state, so this is "what we last sent",
+    // not "what the monitor is showing". Cleared on launch; an OSD/physical-button change made
+    // outside the app will NOT be reflected here (documented caveat). Used to tick the active
+    // menu item + highlight the active settings control.
+    private CommandKind? _lastInput;
+    private CommandKind? _lastKvm;
+    private CommandKind? _lastPbpMode;
+
+    // Maps a live menu item back to its command so we can re-apply the active-tick on each send.
+    private readonly Dictionary<CommandKind, ToolStripMenuItem> _commandItems = new();
+
     public TrayApp()
     {
         _device = new MsiDevice();
@@ -53,17 +65,28 @@ internal sealed class TrayApp : ApplicationContext
     private ContextMenuStrip BuildMenu()
     {
         var menu = new ContextMenuStrip();
+        _commandItems.Clear();
 
-        menu.Items.Add(MakeItem(CommandKind.PbpOn));
-        menu.Items.Add(MakeItem(CommandKind.PbpOff));
+        // Inputs.
+        menu.Items.Add(MakeItem(CommandKind.InputHdmi1));
+        menu.Items.Add(MakeItem(CommandKind.InputHdmi2));
+        menu.Items.Add(MakeItem(CommandKind.InputTypeC));
+        menu.Items.Add(MakeItem(CommandKind.InputDp));
         menu.Items.Add(new ToolStripSeparator());
+        // KVM.
         menu.Items.Add(MakeItem(CommandKind.KvmUsbC));
         menu.Items.Add(MakeItem(CommandKind.KvmUpstream));
         menu.Items.Add(MakeItem(CommandKind.KvmAuto));
         menu.Items.Add(new ToolStripSeparator());
-        menu.Items.Add(MakeItem(CommandKind.InputTypeC));
-        menu.Items.Add(MakeItem(CommandKind.InputDp));
+        // PBP/PIP mode.
+        menu.Items.Add(MakeItem(CommandKind.PbpOff));
+        menu.Items.Add(MakeItem(CommandKind.PbpPip));
+        menu.Items.Add(MakeItem(CommandKind.PbpOn));
         menu.Items.Add(new ToolStripSeparator());
+
+        var launcherItem = new ToolStripMenuItem("Quick Launcher…");
+        launcherItem.Click += (_, _) => OnCommand(CommandKind.ShowLauncher);
+        menu.Items.Add(launcherItem);
 
         var settingsItem = new ToolStripMenuItem("Settings…");
         settingsItem.Click += (_, _) => OpenSettings();
@@ -77,6 +100,7 @@ internal sealed class TrayApp : ApplicationContext
         exitItem.Click += (_, _) => ExitApp();
         menu.Items.Add(exitItem);
 
+        RefreshStatusChecks();
         return menu;
     }
 
@@ -91,13 +115,24 @@ internal sealed class TrayApp : ApplicationContext
             // "Input → DP   Ctrl+Alt+Shift+D"). Display-only — actual binding is in HotKeys.
             ShowShortcutKeys = shortcut.Length > 0,
             ShortcutKeyDisplayString = shortcut.Length > 0 ? shortcut : null,
-            ToolTipText = available
-                ? null
-                : "Payload unknown — see docs/PROTOCOL.md for reverse-engineering steps",
         };
         if (available)
+        {
             item.Click += (_, _) => OnCommand(command);
+            _commandItems[command] = item; // for the live-status tick
+        }
         return item;
+    }
+
+    /// <summary>
+    /// Ticks the menu item for the last command THIS app sent in each group (input / KVM / PBP
+    /// mode) — a "last-sent" indicator, not a true device state (the monitor can't report state;
+    /// see the field comments). Re-applied after every send and on menu rebuild.
+    /// </summary>
+    private void RefreshStatusChecks()
+    {
+        foreach (var (command, item) in _commandItems)
+            item.Checked = command == _lastInput || command == _lastKvm || command == _lastPbpMode;
     }
 
     /// <summary>
@@ -106,7 +141,19 @@ internal sealed class TrayApp : ApplicationContext
     /// </summary>
     private void OpenSettings()
     {
-        using var form = new SettingsForm(_config);
+        // PBP mode + source-select dropdowns send live (not config edits); route them through the
+        // same OnCommand (which records last-sent + ticks the menu) and the device source API.
+        using var form = new SettingsForm(
+            _config,
+            sendCommand: OnCommand,
+            setPbpSource: (window, input) =>
+            {
+                var result = _device.SetPbpSource(window, input);
+                if (result == MsiResult.DeviceNotFound)
+                    ShowBalloon("Monitor not found. Is the USB cable connected?", ToolTipIcon.Warning);
+                else if (result == MsiResult.SendFailed)
+                    ShowBalloon("Failed to set the PBP source.", ToolTipIcon.Error);
+            });
         if (form.ShowDialog() != DialogResult.OK)
             return;
 
@@ -173,6 +220,15 @@ internal sealed class TrayApp : ApplicationContext
     private void OnCommand(CommandKind command)
     {
         DebugLog.Info($"Command invoked: {command} ({Command.Label(command)}).");
+
+        // App-only actions (e.g. the quick-launcher) are NOT monitor commands — handle them
+        // here and never touch the device.
+        if (!Command.IsMonitorCommand(command))
+        {
+            HandleAppCommand(command);
+            return;
+        }
+
         var result = _device.Send(command);
         if (result == MsiResult.DeviceNotFound)
         {
@@ -182,7 +238,65 @@ internal sealed class TrayApp : ApplicationContext
         {
             ShowBalloon("Failed to send command to monitor.", ToolTipIcon.Error);
         }
-        // On success: silent — no notification is the expected behaviour.
+        else
+        {
+            // Success — record as the last-sent in its group + tick the menu (silent otherwise).
+            RecordLastSent(command);
+            RefreshStatusChecks();
+        }
+    }
+
+    /// <summary>Updates the per-group last-sent tracker (input / KVM / PBP mode) on a successful send.</summary>
+    private void RecordLastSent(CommandKind command)
+    {
+        switch (command)
+        {
+            case CommandKind.InputHdmi1 or CommandKind.InputHdmi2 or CommandKind.InputTypeC or CommandKind.InputDp:
+                _lastInput = command; break;
+            case CommandKind.KvmUsbC or CommandKind.KvmUpstream or CommandKind.KvmAuto:
+                _lastKvm = command; break;
+            case CommandKind.PbpOff or CommandKind.PbpPip or CommandKind.PbpOn:
+                _lastPbpMode = command; break;
+        }
+    }
+
+    /// <summary>Handles app-only (non-monitor) commands — currently just the quick-launcher.</summary>
+    private void HandleAppCommand(CommandKind command)
+    {
+        switch (command)
+        {
+            case CommandKind.ShowLauncher:
+                ShowLauncher();
+                break;
+            default:
+                DebugLog.Warn($"No app handler for non-monitor command {command}.");
+                break;
+        }
+    }
+
+    private LauncherForm? _launcher;
+
+    /// <summary>
+    /// Opens the quick-launcher palette (or brings it to front if already open). Runs on the UI
+    /// thread (hotkeys fire there). The launcher dispatches back through <see cref="OnCommand"/>.
+    /// </summary>
+    private void ShowLauncher()
+    {
+        if (_launcher is { IsDisposed: false })
+        {
+            _launcher.Activate();
+            return;
+        }
+
+        var lastSent = new HashSet<CommandKind>();
+        if (_lastInput is { } li)   lastSent.Add(li);
+        if (_lastKvm is { } lk)     lastSent.Add(lk);
+        if (_lastPbpMode is { } lp) lastSent.Add(lp);
+
+        _launcher = new LauncherForm(_config, OnCommand, _device.IsConnected, lastSent);
+        _launcher.FormClosed += (_, _) => _launcher = null;
+        _launcher.Show();
+        _launcher.Activate();
     }
 
     /// <summary>
@@ -242,6 +356,7 @@ internal sealed class TrayApp : ApplicationContext
             _disposed = true;
             // Ensures cleanup happens even if Application.Run returns by another path,
             // not only via the Exit menu item.
+            _launcher?.Dispose();
             _hotKeys.Dispose();
             _trayIcon.Visible = false;
             _trayIcon.Dispose();

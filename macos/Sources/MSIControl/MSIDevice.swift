@@ -178,7 +178,26 @@ public final class MSIDevice {
             DebugLog.shared.warn("send(\(command.actionId)): payload unavailable — not sent")
             return .failure(.payloadUnavailable)
         }
+        return sendBytes(bytes, label: command.actionId)
+    }
 
+    /// Sets a PBP/PIP window's source input (SETTINGS.md / PROTOCOL.md § PBP). Builds
+    /// the source-select payload for the given window's feature code and the input
+    /// enum value, and sends it via the same resilient path as `send`.
+    /// NOTE: `.main` (`0x36 0x32`) is ASSUMED, not hardware-verified — callers should
+    /// surface that to the user. Returns the same Result semantics as `send`.
+    @discardableResult
+    public func setPBPSource(window: PBPWindow, input: InputEnum) -> Result<Void, MSIError> {
+        let feature = window.feature
+        let bytes = Command.makePayload(featHi: feature.hi, featLo: feature.lo, value: input.rawValue)
+        let label = "pbpSource(\(window == .main ? "main" : "sub")=\(input.label))"
+        return sendBytes(bytes, label: label)
+    }
+
+    /// Locate-and-send a raw 53-byte report with the resilient open + single
+    /// re-locate-and-retry backstop. Shared by `send(_:)` and `setPBPSource(...)`.
+    @discardableResult
+    private func sendBytes(_ bytes: [UInt8], label: String) -> Result<Void, MSIError> {
         // Serialise the whole locate-and-send sequence: the `hidDevice == nil`
         // check followed by `locateDevice()` is a TOCTOU window — without the lock
         // two concurrent callers could both locate/open and leak a handle.
@@ -190,17 +209,17 @@ public final class MSIDevice {
             locateDevice()
         }
         guard hidDevice != nil else {
-            DebugLog.shared.warn("send(\(command.actionId)): device not found")
+            DebugLog.shared.warn("send(\(label)): device not found")
             return .failure(.deviceNotFound)
         }
 
         // First attempt.
         let ret = attemptSend(bytes)
         if ret == kIOReturnSuccess {
-            DebugLog.shared.info("send(\(command.actionId)): OK")
+            DebugLog.shared.info("send(\(label)): OK")
             return .success(())
         }
-        DebugLog.shared.warn("send(\(command.actionId)): first attempt failed IOReturn 0x\(String(ret, radix: 16)) — re-locating + retrying once")
+        DebugLog.shared.warn("send(\(label)): first attempt failed IOReturn 0x\(String(ret, radix: 16)) — re-locating + retrying once")
 
         // Backstop: ANY first-attempt failure triggers exactly one re-locate-and-
         // retry. We deliberately do NOT filter on specific IOReturn codes — a fresh
@@ -215,16 +234,16 @@ public final class MSIDevice {
         // handle and SetReports in the same call context.
         locateDevice()
         guard hidDevice != nil else {
-            DebugLog.shared.warn("send(\(command.actionId)): re-locate found no device — deviceNotFound")
+            DebugLog.shared.warn("send(\(label)): re-locate found no device — deviceNotFound")
             return .failure(.deviceNotFound)
         }
         let retryRet = attemptSend(bytes)
         if retryRet == kIOReturnSuccess {
-            DebugLog.shared.info("send(\(command.actionId)): OK after retry")
+            DebugLog.shared.info("send(\(label)): OK after retry")
             return .success(())
         }
 
-        DebugLog.shared.error("send(\(command.actionId)): FAILED after retry — IOReturn 0x\(String(retryRet, radix: 16))")
+        DebugLog.shared.error("send(\(label)): FAILED after retry — IOReturn 0x\(String(retryRet, radix: 16))")
         return .failure(.sendFailed("IOReturn 0x\(String(retryRet, radix: 16))"))
     }
 

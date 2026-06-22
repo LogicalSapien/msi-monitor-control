@@ -76,10 +76,16 @@ internal sealed class ChordCaptureDialog : Form
         Close();
     }
 
-    /// <summary>Maps a <see cref="Keys"/> code to a single A–Z / 0–9 base key, or false.</summary>
+    /// <summary>Maps a <see cref="Keys"/> code to an allowed base key (A–Z / 0–9 / "Space"), or false.</summary>
     private static bool TryBaseKey(Keys code, out string key)
     {
         key = "";
+        // Named key: Space (v0.2.2 — for the quick-launcher). Canonical spelling "Space".
+        if (code == Keys.Space)
+        {
+            key = "Space";
+            return true;
+        }
         // Letters: Keys.A..Keys.Z map to ASCII 'A'..'Z'.
         if (code >= Keys.A && code <= Keys.Z)
         {

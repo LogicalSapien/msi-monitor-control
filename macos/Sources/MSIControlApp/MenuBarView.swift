@@ -8,6 +8,8 @@ struct MenuBarView: View {
     @ObservedObject var settings: SettingsStore
     /// Opens the settings window (wired from the App scene).
     var openSettings: () -> Void
+    /// Opens the quick-launcher palette (wired from the App scene).
+    var openLauncher: () -> Void
 
     var body: some View {
         // Connection status indicator
@@ -32,9 +34,16 @@ struct MenuBarView: View {
         // text (native NSMenu drops a trailing custom Text) and is now DATA-DRIVEN
         // from the loaded config via `settings.primaryDisplay` — not hardcoded —
         // so it always reflects the user's current binding (SETTINGS.md §3.7).
-        ForEach(Command.allCases.filter(\.isAvailable), id: \.self) { command in
+        // A leading "✓ " marks the last command this app sent in each group (the
+        // best-effort "current" highlight — folded into the label text because the
+        // native NSMenu drops custom marker views, same reason the chord is folded).
+        // Monitor commands only (exclude the showLauncher UI action, which is not a
+        // HID send and gets its own menu item below).
+        ForEach(Command.allCases.filter { $0.isAvailable && $0.isMonitorCommand }, id: \.self) { command in
             let chord = settings.primaryDisplay(for: command)
-            Button(chord.isEmpty ? command.label : "\(command.label)  \(chord)") {
+            let tick = deviceState.isCurrent(command) ? "✓ " : "   "
+            let base = chord.isEmpty ? command.label : "\(command.label)  \(chord)"
+            Button("\(tick)\(base)") {
                 deviceState.send(command)
             }
             .disabled(!deviceState.isConnected)
@@ -50,6 +59,10 @@ struct MenuBarView: View {
 
         Divider()
 
+        Button(launcherLabel) {
+            openLauncher()
+        }
+
         Button("Settings…") {
             openSettings()
         }
@@ -63,6 +76,12 @@ struct MenuBarView: View {
             NSApplication.shared.terminate(nil)
         }
         .keyboardShortcut("q")
+    }
+
+    /// "Quick Launcher…" with its current chord folded in (e.g. "Quick Launcher…  ⌃⇧⌘ Space").
+    private var launcherLabel: String {
+        let chord = settings.primaryDisplay(for: .showLauncher)
+        return chord.isEmpty ? "Quick Launcher…" : "Quick Launcher…  \(chord)"
     }
 
     /// Reveals `debug.log` in Finder so the user can grab it after an unexpected

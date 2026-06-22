@@ -3,6 +3,26 @@
   "preset": "cmdShiftCtrl",
   "launchAtLogin": false,
   "bindings": {
+    "inputHDMI1": [
+      {
+        "mods": [
+          "control",
+          "alt",
+          "shift"
+        ],
+        "key": "H"
+      }
+    ],
+    "inputHDMI2": [
+      {
+        "mods": [
+          "control",
+          "alt",
+          "shift"
+        ],
+        "key": "J"
+      }
+    ],
     "inputTypeC": [
       {
         "mods": [
@@ -53,8 +73,46 @@
         "key": "A"
       }
     ],
-    "pbpOn": [],
-    "pbpOff": []
+    "pbpOff": [
+      {
+        "mods": [
+          "control",
+          "alt",
+          "shift"
+        ],
+        "key": "O"
+      }
+    ],
+    "pbpPIP": [
+      {
+        "mods": [
+          "control",
+          "alt",
+          "shift"
+        ],
+        "key": "I"
+      }
+    ],
+    "pbpOn": [
+      {
+        "mods": [
+          "control",
+          "alt",
+          "shift"
+        ],
+        "key": "P"
+      }
+    ],
+    "showLauncher": [
+      {
+        "mods": [
+          "control",
+          "alt",
+          "shift"
+        ],
+        "key": "Space"
+      }
+    ]
   },
   "altGrAvoidList": {
     "keys": [

@@ -43,18 +43,19 @@ final class MSIDeviceTests: XCTestCase {
         }
     }
 
-    /// Sending a command with no payload returns `.payloadUnavailable` (not a crash).
-    /// This test runs regardless of monitor presence.
-    func testSendUnavailableCommandReturnPayloadUnavailable() {
+    /// Every command now has a hardware-confirmed payload (v0.2.2), so a send never
+    /// returns `.payloadUnavailable`. Without a monitor it returns `.deviceNotFound`;
+    /// it must never `.payloadUnavailable` and never crash. (When a monitor is
+    /// attached it may succeed — that's fine.)
+    func testSendNeverReportsPayloadUnavailable() throws {
+        try requireNoMonitor()
         let device = MSIDevice()
-        let result = device.send(.pbpOn)
-        // Should be either payloadUnavailable (no monitor) or payloadUnavailable
-        // (monitor present but payload unknown). Either way, not .success.
-        if case .success = result {
-            XCTFail("Sending an unavailable command should never succeed")
+        for command in Command.allCases {
+            let result = device.send(command)
+            if case .failure(.payloadUnavailable) = result {
+                XCTFail("\(command) reported payloadUnavailable — all commands have payloads in v0.2.2")
+            }
         }
-        // If device is connected, payloadUnavailable is returned; if not, deviceNotFound.
-        // Both are acceptable failures — just not .success.
     }
 
     /// Two consecutive sends of an *available* command must each return without a

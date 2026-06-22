@@ -50,6 +50,11 @@ private func loadMenuBarIcon() -> NSImage? {
     return image
 }
 
+/// Tiny holder so the Carbon hotkey handler (built in `App.init`, before SwiftUI's
+/// `openWindow` is available) can trigger the launcher window once the scene has
+/// wired up the actual opener.
+final class LauncherOpener { var open: () -> Void = {} }
+
 @main
 struct MSIControlApp: App {
 
@@ -60,16 +65,20 @@ struct MSIControlApp: App {
 
     /// Kept alive for the app lifetime — ARC would release it otherwise.
     private let hotKeyManager: HotKeyManager
+    private let launcherOpener: LauncherOpener
 
     @Environment(\.openWindow) private var openWindow
 
     init() {
         let state = DeviceState()
-        let manager = HotKeyManager(deviceState: state)
+        let opener = LauncherOpener()
+        let manager = HotKeyManager(deviceState: state,
+                                    onShowLauncher: { [opener] in opener.open() })
         _deviceState = StateObject(wrappedValue: state)
         // SettingsStore loads the config and applies hotkeys + launch-at-login.
         _settings = StateObject(wrappedValue: SettingsStore(hotKeyManager: manager))
         hotKeyManager = manager
+        launcherOpener = opener
     }
 
     /// The custom template icon, loaded once. `nil` falls back to an SF Symbol.
@@ -77,11 +86,16 @@ struct MSIControlApp: App {
 
     var body: some Scene {
         MenuBarExtra {
-            MenuBarView(deviceState: deviceState, settings: settings) {
-                // Bring the app forward, then open the settings window.
-                NSApp.activate(ignoringOtherApps: true)
-                openWindow(id: "settings")
-            }
+            MenuBarView(deviceState: deviceState, settings: settings,
+                        openSettings: {
+                            NSApp.activate(ignoringOtherApps: true)
+                            openWindow(id: "settings")
+                        },
+                        openLauncher: {
+                            NSApp.activate(ignoringOtherApps: true)
+                            openWindow(id: "launcher")
+                        })
+                .onAppear { wireLauncherOpener() }
         } label: {
             if let icon = menuBarIcon {
                 Image(nsImage: icon)
@@ -95,8 +109,37 @@ struct MSIControlApp: App {
         // Settings window, opened on demand from the menu. Accessory-policy apps
         // have no standard Settings menu, so we use a plain Window we open by id.
         Window("MSI Monitor Control Settings", id: "settings") {
-            SettingsView(settings: settings)
+            SettingsView(settings: settings, deviceState: deviceState)
         }
         .windowResizability(.contentSize)
+
+        // Quick-launcher palette, opened by the ⌃⇧⌘Space hotkey (or the menu). We
+        // wire `launcherOpener` here, where `openWindow` is available, so the Carbon
+        // handler (built in init) can trigger it. The window centres + becomes key.
+        Window("Quick Launcher", id: "launcher") {
+            LauncherView(deviceState: deviceState, settings: settings) {
+                // Close via AppKit (Environment.dismissWindow is macOS 14+). The
+                // launcher is the key window while shown.
+                closeLauncherWindow()
+            }
+        }
+        .windowResizability(.contentSize)
+        .defaultPosition(.center)
+    }
+
+    /// Closes the launcher window by title (macOS 13-safe — no `dismissWindow`).
+    private func closeLauncherWindow() {
+        NSApp.windows.first { $0.title == "Quick Launcher" && $0.isVisible }?.close()
+    }
+
+    /// Wires `launcherOpener.open` to actually open the window. Called from the
+    /// always-present MenuBarExtra content so it's set before the hotkey can fire
+    /// (the `.onAppear` of the launcher window itself would be too late — it only
+    /// runs once the window is already shown).
+    private func wireLauncherOpener() {
+        launcherOpener.open = {
+            NSApp.activate(ignoringOtherApps: true)
+            openWindow(id: "launcher")
+        }
     }
 }

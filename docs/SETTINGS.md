@@ -192,11 +192,16 @@ portable; apps **write** the platform-native spelling but **read** either.
 | `shift` | `shiftKey` | `MOD_SHIFT` | |
 | `command` | `cmdKey` | *(unsupported)* | macOS only; on Windows a `command` token is **ignored with a warning** |
 
-Base `key` values allowed in v0.2.0: `A`–`Z`, `0`–`9`. (Function keys / arrows are
-out of scope for v0.2.0 — keeps the per-OS keycode tables small and the conflict
-surface manageable. Add later if requested.) Each app keeps a private
-char→native-keycode table (Carbon virtual key codes / Win32 `VK_*`); these tables
-are an **implementation detail**, NOT part of the config.
+Base `key` values: a single `A`–`Z` / `0`–`9` character, OR a **named key** from a
+small explicit allow-list. **Named keys (v0.2.2): `Space`** (added for the
+quick-launcher palette). Named keys are written verbatim (e.g. `"key": "Space"`) and
+are case-insensitively normalised on read (`space`→`Space`); single characters are
+upper-cased. Both apps share the SAME named-key set — adding one is a contract change
+needing a keycode-table entry in every app (Carbon code 49 for Space on macOS;
+`VK_SPACE` on Windows). Other function/arrow keys remain out of scope. Each app keeps
+a private key→native-keycode table; these tables are an **implementation detail**,
+NOT part of the config. The derived display renders a named key as a word, e.g.
+`⌃⇧⌘ Space` (with a separating space, vs `⌃⇧⌘C` for a character).
 
 ### 3.5 Conflict + AltGr rules
 
@@ -237,21 +242,29 @@ rebuild:
 These string ids are the contract between the config and both apps' command enums.
 **Never rename an id** (it would orphan a user's binding); add new ones only.
 
-| `actionId` | Swift `Command` | C# `CommandKind` | Default key | Available? |
-|:-----------|:----------------|:-----------------|:------------|:-----------|
-| `inputTypeC` | `.inputTypeC` | `InputTypeC` | `C` | yes |
-| `inputDP` | `.inputDP` | `InputDp` | `D` | yes |
-| `kvmUSBC` | `.kvmUSBC` | `KvmUsbC` | `K` | yes |
-| `kvmUpstream` | `.kvmUpstream` | `KvmUpstream` | `U` | yes |
-| `kvmAuto` | `.kvmAuto` | `KvmAuto` | `A` | yes (byte[10]=0x30, hardware-confirmed) |
-| `pbpOn` | `.pbpOn` | `PbpOn` | `P`* | no (payload UNKNOWN) |
-| `pbpOff` | `.pbpOff` | `PbpOff` | `O`* | no (payload UNKNOWN) |
+Listed in the canonical serialisation order (§3.8). All commands are available
+(hardware-confirmed) as of v0.2.2.
 
-\* For the still-UNKNOWN PBP actions the default key is recorded for when the payload
-lands, but the default config ships them with an **empty bindings array** (no chord
-registered) — consistent with availability gating. When a payload is added, the
-default seed for that action becomes `[{mods: <preset>, key: <default>}]` (as already
-done for `kvmAuto`).
+| `actionId` | Swift `Command` | C# `CommandKind` | Default key | Notes |
+|:-----------|:----------------|:-----------------|:------------|:------|
+| `inputHDMI1` | `.inputHDMI1` | `InputHdmi1` | `H` | input enum 0x30 |
+| `inputHDMI2` | `.inputHDMI2` | `InputHdmi2` | `J` | input enum 0x31 |
+| `inputTypeC` | `.inputTypeC` | `InputTypeC` | `C` | input enum 0x33 |
+| `inputDP` | `.inputDP` | `InputDp` | `D` | input enum 0x32 |
+| `kvmUSBC` | `.kvmUSBC` | `KvmUsbC` | `K` | KVM 0x32 |
+| `kvmUpstream` | `.kvmUpstream` | `KvmUpstream` | `U` | KVM 0x31 |
+| `kvmAuto` | `.kvmAuto` | `KvmAuto` | `A` | KVM 0x30 |
+| `pbpOff` | `.pbpOff` | `PbpOff` | `O` | PBP mode 0x30 |
+| `pbpPIP` | `.pbpPIP` | `PbpPip` | `I` | PBP mode 0x31 |
+| `pbpOn` | `.pbpOn` | `PbpOn` | `P` | PBP mode 0x32 (PBP) |
+| `showLauncher` | `.showLauncher` | `ShowLauncher` | `Space` | **UI action** — opens the quick-launcher palette; NOT a HID command |
+
+`showLauncher` is special: it is a real, rebindable hotkey action (registered like
+the others, in the config + all 3 fixtures with default `Space`), but it sends NO
+HID report — the dispatch opens the launcher window instead. It has no monitor-state
+group. The PBP per-window source-select (`0x36 0x31` sub / `0x36 0x32` main) is NOT a
+`Command`/hotkey — it's the parameterised `setPBPSource` device
+API driven from the Settings dropdowns (main flagged unverified).
 
 ### 3.7 Derived display strings (not stored)
 
@@ -320,10 +333,12 @@ The app must always start with working hotkeys. On load:
    app)** → **log a diagnostic, ignore the file, run on built-in defaults in
    memory, and do NOT overwrite the user's file.** (Preserves a file written by a
    newer app version, and a hand-edit the user can fix.)
-4. **`schemaVersion` < current (older)** → for v0.2.0 there is only version `1`, so
-   this cannot happen yet. The forward rule when it does: read with the old shape,
-   fill new fields from defaults, and rewrite at the current version. (We will
-   spec the exact migration when a v2 actually exists — not before.)
+4. **`schemaVersion` < current (older)** → **NO migration code** (project rule: no
+   backward compatibility — there are no released users). An older file is simply
+   read by the resilient parser, which fills any missing fields from built-in
+   defaults; on the next save it is rewritten at the current version. We do NOT
+   write migration/upgrade paths, read-aliases for renamed tokens, or legacy
+   fallbacks — the canonical schema is changed cleanly and fixtures regenerated.
 
 Per-field resilience: a single malformed binding entry is dropped (with a log), the
 rest load. A `command` modifier in a Windows config is dropped with a log. Empty

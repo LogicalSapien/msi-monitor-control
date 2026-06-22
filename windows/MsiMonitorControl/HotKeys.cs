@@ -193,16 +193,25 @@ internal sealed class HotKeys : IMessageFilter, IDisposable
         return mods != 0;
     }
 
+    private const uint VkSpace = 0x20; // VK_SPACE
+
     /// <summary>
-    /// Maps a base key (A–Z, 0–9) to its Win32 virtual key code. For these ASCII keys the
-    /// <c>VK_*</c> value equals the upper-case ASCII code, so no lookup table is needed.
-    /// Returns false for anything outside the v0.2.0 allowed set.
+    /// Maps a base key to its Win32 virtual key code. For A–Z/0–9 the <c>VK_*</c> value equals the
+    /// upper-case ASCII code (no table needed); named keys (v0.2.2: "Space") map explicitly.
+    /// Returns false for anything outside the allowed set (§3.4).
     /// </summary>
     private static bool TryVk(string key, out uint vk)
     {
         vk = 0;
-        if (string.IsNullOrEmpty(key) || key.Length != 1) return false;
+        if (string.IsNullOrEmpty(key)) return false;
 
+        if (string.Equals(key, "Space", StringComparison.OrdinalIgnoreCase))
+        {
+            vk = VkSpace;
+            return true;
+        }
+
+        if (key.Length != 1) return false;
         char c = char.ToUpperInvariant(key[0]);
         if ((c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9'))
         {

@@ -1,14 +1,14 @@
 import Carbon
 import MSIControl
 
-// MARK: - Carbon key-code table (A–Z, 0–9)
+// MARK: - Carbon key-code table (A–Z, 0–9, named keys)
 
-/// Maps a base key character (upper-case `A`–`Z` / `0`–`9`) to its Carbon virtual
-/// key code. These ANSI positions are an implementation detail of the macOS app —
-/// NOT part of the shared config (see `docs/SETTINGS.md` §3.4). Keys outside this
-/// table are out of scope for v0.2.0 and cannot be registered.
+/// Maps a base key (upper-case `A`–`Z` / `0`–`9`, or a named key like `Space`) to
+/// its Carbon virtual key code. These ANSI positions are an implementation detail
+/// of the macOS app — NOT part of the shared config (see `docs/SETTINGS.md` §3.4).
+/// Keys outside this table cannot be registered.
 private enum CarbonKeyCode {
-    static let table: [Character: UInt32] = [
+    static let charTable: [Character: UInt32] = [
         "A": 0,  "B": 11, "C": 8,  "D": 2,  "E": 14, "F": 3,  "G": 5,
         "H": 4,  "I": 34, "J": 38, "K": 40, "L": 37, "M": 46, "N": 45,
         "O": 31, "P": 35, "Q": 12, "R": 15, "S": 1,  "T": 17, "U": 32,
@@ -17,9 +17,13 @@ private enum CarbonKeyCode {
         "6": 22, "7": 26, "8": 28, "9": 25,
     ]
 
+    /// Named (non-character) keys. Space = Carbon keycode 49.
+    static let namedTable: [String: UInt32] = ["Space": 49]
+
     static func code(for key: String) -> UInt32? {
+        if let named = namedTable[key] { return named }
         guard let ch = key.uppercased().first else { return nil }
-        return table[ch]
+        return charTable[ch]
     }
 }
 
@@ -58,11 +62,14 @@ final class HotKeyManager: HotkeyRegistering {
     private var handlerRef: EventHandlerRef?
     private var selfPtr: UnsafeMutableRawPointer?
     private weak var deviceState: DeviceState?
+    /// Invoked (on the main thread) when the non-HID `showLauncher` action fires.
+    private let onShowLauncher: () -> Void
 
     private static let signature: OSType = 0x4D534931  // 'MSI1'
 
-    init(deviceState: DeviceState) {
+    init(deviceState: DeviceState, onShowLauncher: @escaping () -> Void = {}) {
         self.deviceState = deviceState
+        self.onShowLauncher = onShowLauncher
         installHandler()
     }
 
@@ -187,7 +194,13 @@ final class HotKeyManager: HotkeyRegistering {
         guard let command = registrations[id]?.command else { return }
         DebugLog.shared.info("hotkey fired → \(command.actionId)")
         DispatchQueue.main.async { [weak self] in
-            self?.deviceState?.send(command)
+            guard let self else { return }
+            if command.isMonitorCommand {
+                self.deviceState?.send(command)
+            } else {
+                // Non-HID UI action (showLauncher) — open the launcher, don't send.
+                self.onShowLauncher()
+            }
         }
     }
 }

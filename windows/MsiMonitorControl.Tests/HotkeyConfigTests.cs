@@ -148,8 +148,8 @@ public class HotkeyConfigTests
 
             Assert.True(File.Exists(path)); // §4.1: default written
             Assert.Equal(HotkeyPreset.CmdShiftCtrl, loaded.Preset);
-            Assert.True(WinDefault("A").Matches(loaded.Bindings["kvmAuto"][0])); // v0.2.1: KVM Auto live + seeded
-            Assert.Empty(loaded.Bindings["pbpOn"]); // PBP still UNKNOWN → no chord
+            Assert.True(WinDefault("A").Matches(loaded.Bindings["kvmAuto"][0])); // KVM Auto seeded
+            Assert.True(WinDefault("P").Matches(loaded.Bindings["pbpOn"][0]));   // v0.2.2: PBP seeded P
         }
         finally
         {
@@ -426,13 +426,44 @@ public class HotkeyConfigTests
     }
 
     [Fact]
-    public void IsValidBaseKey_AcceptsLettersAndDigitsOnly()
+    public void IsValidBaseKey_AcceptsLettersDigitsAndNamedSpace()
     {
         Assert.True(HotkeyConfig.IsValidBaseKey("C"));
         Assert.True(HotkeyConfig.IsValidBaseKey("7"));
+        Assert.True(HotkeyConfig.IsValidBaseKey("Space"));  // v0.2.2 named key
         Assert.False(HotkeyConfig.IsValidBaseKey("F5"));
         Assert.False(HotkeyConfig.IsValidBaseKey("@"));
         Assert.False(HotkeyConfig.IsValidBaseKey(""));
+        Assert.False(HotkeyConfig.IsValidBaseKey("Tab")); // only "Space" is allowed for now
+    }
+
+    [Theory]
+    [InlineData("space", "Space")]  // case-insensitive → canonical "Space"
+    [InlineData("SPACE", "Space")]
+    [InlineData("Space", "Space")]
+    [InlineData("c", "C")]          // A–Z/0–9 upper-cased
+    [InlineData(" k ", "K")]        // trimmed
+    public void NormaliseKey_FoldsNamedKeysAndUppercasesChars(string input, string expected)
+    {
+        Assert.Equal(expected, HotkeyConfig.NormaliseKey(input));
+    }
+
+    [Fact]
+    public void Parse_NormalisesSpaceKeyCasing()
+    {
+        // A lower-case "space" in a hand-edited config loads as the canonical "Space".
+        const string json = """
+        {
+          "schemaVersion": 1,
+          "preset": "custom",
+          "launchAtLogin": false,
+          "bindings": {
+            "showLauncher": [ { "mods": ["control","alt","shift"], "key": "space" } ]
+          }
+        }
+        """;
+        var parsed = HotkeyConfig.Parse(json, overwriteOnRepair: false, out _);
+        Assert.Equal("Space", parsed.Bindings["showLauncher"][0].Key);
     }
 
     [Fact]
@@ -523,6 +554,13 @@ public class HotkeyConfigTests
     }
 
     [Fact]
+    public void DisplayString_NamedSpaceKey_RendersAsSpaceNotUppercased()
+    {
+        // v0.2.2: the named "Space" key keeps its canonical spelling in the display string.
+        Assert.Equal("Ctrl+Alt+Shift+Space", HotkeyConfig.DisplayString(WinDefault("Space")));
+    }
+
+    [Fact]
     public void DisplayString_OrderIsCanonical_RegardlessOfInputOrder()
     {
         // Mods supplied out of order must still render Ctrl, Alt, Shift, key.
@@ -538,12 +576,15 @@ public class HotkeyConfigTests
     }
 
     [Fact]
-    public void PrimaryDisplay_EmptyForUnboundAction()
+    public void PrimaryDisplay_BoundActionsAndEmptyForUnknownId()
     {
         var config = HotkeyConfig.Default();
-        Assert.Equal("", config.PrimaryDisplay("pbpOn"));        // PBP unbound (UNKNOWN payload)
+        // v0.2.2: all default actions are bound.
         Assert.Equal("Ctrl+Alt+Shift+C", config.PrimaryDisplay("inputTypeC"));
-        Assert.Equal("Ctrl+Alt+Shift+A", config.PrimaryDisplay("kvmAuto")); // v0.2.1: now bound
+        Assert.Equal("Ctrl+Alt+Shift+A", config.PrimaryDisplay("kvmAuto"));
+        Assert.Equal("Ctrl+Alt+Shift+P", config.PrimaryDisplay("pbpOn"));
+        // An action with no chord (here: an unknown/absent actionId) yields an empty display.
+        Assert.Equal("", config.PrimaryDisplay("noSuchAction"));
     }
 
     // -------------------------------------------------------------------------
@@ -573,7 +614,10 @@ public class HotkeyConfigTests
         var chord = config.Bindings["inputTypeC"][0];
         Assert.True(chord.ModSet.SetEquals(new[] { HotkeyConfig.ModControl, HotkeyConfig.ModShift }));
         Assert.Equal("C", chord.Key); // key unchanged, only mods re-baked
-        Assert.Empty(config.Bindings["pbpOn"]); // empty stays empty (PBP UNKNOWN)
+        // Every bound action re-bakes to the preset mods (v0.2.2: pbp* are bound too).
+        var pbp = config.Bindings["pbpOn"][0];
+        Assert.True(pbp.ModSet.SetEquals(new[] { HotkeyConfig.ModControl, HotkeyConfig.ModShift }));
+        Assert.Equal("P", pbp.Key);
     }
 
     [Fact]
@@ -603,17 +647,18 @@ public class HotkeyConfigTests
         Assert.Equal(HotkeyPreset.CmdShiftCtrl, parsed.Preset);
         Assert.False(parsed.LaunchAtLogin);
 
-        // The five available actions reproduce the Windows default chords (Ctrl+Alt+Shift) exactly
-        // — incl. KVM Auto, live since v0.2.1 (byte[10]=0x30 confirmed on hardware).
+        // v0.2.2: ALL ten actions reproduce the Windows default chords (Ctrl+Alt+Shift) exactly.
+        Assert.True(WinDefault("H").Matches(parsed.Bindings["inputHDMI1"][0]));
+        Assert.True(WinDefault("J").Matches(parsed.Bindings["inputHDMI2"][0]));
         Assert.True(WinDefault("C").Matches(parsed.Bindings["inputTypeC"][0]));
         Assert.True(WinDefault("D").Matches(parsed.Bindings["inputDP"][0]));
         Assert.True(WinDefault("K").Matches(parsed.Bindings["kvmUSBC"][0]));
         Assert.True(WinDefault("U").Matches(parsed.Bindings["kvmUpstream"][0]));
         Assert.True(WinDefault("A").Matches(parsed.Bindings["kvmAuto"][0]));
-
-        // The two UNKNOWN-payload actions (PBP) have no chord.
-        Assert.Empty(parsed.Bindings["pbpOn"]);
-        Assert.Empty(parsed.Bindings["pbpOff"]);
+        Assert.True(WinDefault("O").Matches(parsed.Bindings["pbpOff"][0]));
+        Assert.True(WinDefault("I").Matches(parsed.Bindings["pbpPIP"][0]));
+        Assert.True(WinDefault("P").Matches(parsed.Bindings["pbpOn"][0]));
+        Assert.True(WinDefault("Space").Matches(parsed.Bindings["showLauncher"][0])); // v0.2.2 quick-launcher
 
         Assert.Contains("Q", parsed.AltGrAvoidList.Keys);
     }
@@ -638,7 +683,12 @@ public class HotkeyConfigTests
 
         // Each default chord loads as Ctrl+Shift+key (command stripped, control+shift kept).
         var ctrlShift = new[] { HotkeyConfig.ModControl, HotkeyConfig.ModShift };
-        foreach (var (actionId, key) in new[] { ("inputTypeC", "C"), ("inputDP", "D"), ("kvmUSBC", "K"), ("kvmUpstream", "U"), ("kvmAuto", "A") })
+        foreach (var (actionId, key) in new[]
+                 {
+                     ("inputHDMI1", "H"), ("inputHDMI2", "J"), ("inputTypeC", "C"), ("inputDP", "D"),
+                     ("kvmUSBC", "K"), ("kvmUpstream", "U"), ("kvmAuto", "A"),
+                     ("pbpOff", "O"), ("pbpPIP", "I"), ("pbpOn", "P"), ("showLauncher", "Space"),
+                 })
         {
             var chord = parsed.Bindings[actionId][0];
             Assert.Equal(key, chord.Key);

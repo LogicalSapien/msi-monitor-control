@@ -75,15 +75,24 @@ Every command is 12 meaningful bytes, zero-padded to the report size:
 | 10    | `0x30` + value  | Value byte (`0x30` + position, ASCII digit)          |
 | 11    | `0x0D`          | Carriage return — command terminator                 |
 
-**Known feature codes** (at indices [5],[6]):
+**Known feature codes** (at indices [5],[6]) — all HARDWARE-CONFIRMED on the
+MD342CQP via `tools/kvm-probe` unless noted:
 
-| Feature      | Code        | Values (index [10])                          |
-|:-------------|:------------|:---------------------------------------------|
-| Input source | `0x35 0x30` | `0`=HDMI1, `1`=HDMI2, `2`=DisplayPort, `3`=Type-C |
-| KVM          | `0x38 0x3E` | `0`, `1` (USB-C vs Upstream — TODO confirm)   |
-| PBP          | UNKNOWN     | almost certainly a distinct 2-byte feature code |
+| Feature             | Code        | Values (index [10])                                   |
+|:--------------------|:------------|:------------------------------------------------------|
+| Input source        | `0x35 0x30` | `0`=HDMI1, `1`=HDMI2, `2`=DisplayPort, `3`=Type-C      |
+| KVM                 | `0x38 0x3E` | `0`=Auto, `1`=Upstream, `2`=USB-C (`3`=no-op)          |
+| PBP/PIP mode        | `0x36 0x30` | `0`=Off, `1`=PIP, `2`=PBP (`3`=2nd PBP variant)        |
+| PBP source — sub    | `0x36 0x31` | input enum (`0`=HDMI1 … `3`=Type-C) for the sub window |
+| PBP source — main   | `0x36 0x32` | input enum — **ASSUMED, not hardware-verified** (see note) |
 
-To discover PBP, sweep the **feature-code pair** at [5],[6] (not the value byte).
+> The **input enum** `0=HDMI1, 1=HDMI2, 2=DP, 3=Type-C` is reused as the value for
+> both the Input feature and the PBP source-select features.
+>
+> **`0x36 0x32` (main/left window source) is ASSUMED**, not confirmed: the user
+> couldn't probe it safely because the KVM/USB-C sits on the main window (switching
+> it risks losing the control connection). It is assumed to use the same input enum
+> as the sub-window feature `0x36 0x31`; verify when safe and update here.
 
 ---
 
@@ -98,27 +107,49 @@ is included as the first byte and passed to `IOHIDDeviceSetReport` as the
 These payloads were confirmed in the reference implementation (Phaseowner/MSI-Display-Switch,
 tested on MD342CQP). Only byte[10] differs between inputs.
 
-| Action           | Byte[0] | Byte[1] | Byte[2] | Byte[3..9]              | Byte[10] | Byte[11] | Bytes[12..63] |
-|:-----------------|:--------|:--------|:--------|:------------------------|:---------|:---------|:--------------|
-| Input → Type-C   | `0x01`  | `0x35`  | `0x62`  | `0x30 0x30 0x35 0x30 0x30 0x30 0x30` | `0x33`   | `0x0D`   | `0x00` ×52   |
-| Input → DP       | `0x01`  | `0x35`  | `0x62`  | `0x30 0x30 0x35 0x30 0x30 0x30 0x30` | `0x32`   | `0x0D`   | `0x00` ×52   |
+Feature `0x35 0x30`; byte[10] = the input enum. **All four inputs are
+hardware-confirmed** (HDMI1/HDMI2 confirmed on the MD342CQP in v0.2.2 — previously
+parked):
 
-Full byte arrays (64 bytes each):
+| Action           | Byte[10] | Byte[1..9] / [11]                              |
+|:-----------------|:---------|:-----------------------------------------------|
+| Input → HDMI 1   | `0x30`   | `35 62 30 30 35 30 30 30 30` … `0D`            |
+| Input → HDMI 2   | `0x31`   | (same, byte[10]=`0x31`)                         |
+| Input → DP       | `0x32`   | (same, byte[10]=`0x32`)                         |
+| Input → Type-C   | `0x33`   | (same, byte[10]=`0x33`)                         |
 
-**Input → Type-C:**
+Full byte arrays (53 bytes each; `IOHIDDeviceSetReport` uses `data.count`):
+
+**Input → HDMI 1 (byte[10] = 0x30):**
 ```
-0x01, 0x35, 0x62, 0x30, 0x30, 0x35, 0x30, 0x30, 0x30, 0x30, 0x33, 0x0D,
+0x01, 0x35, 0x62, 0x30, 0x30, 0x35, 0x30, 0x30, 0x30, 0x30, 0x30, 0x0D,
 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 0x00, 0x00, 0x00, 0x00, 0x00
 ```
-(53 bytes — padded to 64 total including report ID; reference sends `reportSize = 0x40 = 64`,
- array length in reference is 53, `IOHIDDeviceSetReport` uses `data.count`)
 
-**Input → DP:**
+**Input → HDMI 2 (byte[10] = 0x31):**
+```
+0x01, 0x35, 0x62, 0x30, 0x30, 0x35, 0x30, 0x30, 0x30, 0x30, 0x31, 0x0D,
+0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+0x00, 0x00, 0x00, 0x00, 0x00
+```
+
+**Input → DP (byte[10] = 0x32):**
 ```
 0x01, 0x35, 0x62, 0x30, 0x30, 0x35, 0x30, 0x30, 0x30, 0x30, 0x32, 0x0D,
+0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+0x00, 0x00, 0x00, 0x00, 0x00
+```
+
+**Input → Type-C (byte[10] = 0x33):**
+```
+0x01, 0x35, 0x62, 0x30, 0x30, 0x35, 0x30, 0x30, 0x30, 0x30, 0x33, 0x0D,
 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -182,18 +213,55 @@ Full byte arrays:
 > the above payloads switch KVM correctly over HID SetReport. **Do not switch the
 > transport to libusb; keep HID.**
 
-### PBP (Picture-by-Picture)
+### PBP / PIP (Picture-by-Picture / Picture-in-Picture)
 
-| Action  | Payload                                        |
-|:--------|:-----------------------------------------------|
-| PBP On  | `UNKNOWN — needs hardware reverse-engineering` |
-| PBP Off | `UNKNOWN — needs hardware reverse-engineering` |
+HARDWARE-CONFIRMED on the MD342CQP (v0.2.2). PBP/PIP is **three distinct features**:
+a mode selector and two per-window source selectors.
 
-PBP is **almost certainly another 2-byte feature code** at indices [5],[6] (the
-same slot that holds `0x35 0x30` for input and `0x38 0x3E` for KVM). A hardware
-probe to discover PBP should **sweep the feature-code pair** at [5],[6] — not the
-value byte at [10] — while capturing HID traffic from MSI Productivity
-Intelligence. See **Command grammar** below.
+**Mode — feature `0x36 0x30`, byte[10] = mode:**
+
+| Action      | byte[10] | Notes                                  |
+|:------------|:---------|:---------------------------------------|
+| PBP/PIP Off | `0x30`   | single full-screen input               |
+| PIP         | `0x31`   | small inset window                     |
+| PBP         | `0x32`   | side-by-side split                      |
+| (PBP alt)   | `0x33`   | a 2nd PBP layout variant — optional     |
+
+**Window source — byte[10] = the input enum (`0`=HDMI1,`1`=HDMI2,`2`=DP,`3`=Type-C):**
+
+| Window            | Feature     | Status                                  |
+|:------------------|:------------|:----------------------------------------|
+| Sub  (right/PIP)  | `0x36 0x31` | hardware-confirmed                      |
+| Main (left)       | `0x36 0x32` | **ASSUMED — not hardware-verified**     |
+
+> **`0x36 0x32` (main-window source) is ASSUMED**, not confirmed: the user couldn't
+> probe it safely (the KVM/USB-C control connection lives on the main window, so
+> switching its source risks losing control). It is assumed to take the same input
+> enum as the sub-window feature `0x36 0x31`. Apps must flag it as unverified in the
+> UI; verify when safe and update here.
+
+**Example payloads** (53 bytes; only feature bytes[5][6] + value byte[10] vary):
+
+**PBP mode = PBP (feature 0x36 0x30, byte[10]=0x32):**
+```
+0x01, 0x35, 0x62, 0x30, 0x30, 0x36, 0x30, 0x30, 0x30, 0x30, 0x32, 0x0D,
+0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+0x00, 0x00, 0x00, 0x00, 0x00
+```
+
+**PBP sub-source = HDMI2 (feature 0x36 0x31, byte[10]=0x31):**
+```
+0x01, 0x35, 0x62, 0x30, 0x30, 0x36, 0x31, 0x30, 0x30, 0x30, 0x31, 0x0D,
+0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+0x00, 0x00, 0x00, 0x00, 0x00
+```
+
+(The old `pbpOn`/`pbpOff` nil-payload stubs are REPLACED by this off/PIP/PBP model
+— see the v0.2.2 design doc for the Command-enum mapping.)
 
 ---
 
@@ -227,27 +295,24 @@ capture against real hardware; if the byte is double-counted, drop the leading
 `0x01` from the buffer (keeping it only as the report-ID argument). Tracked in
 code with `// TODO(verify-on-hardware)` near the send call in both apps.
 
-### What is NOT known (Needs-decision)
+### What is NOT known / unverified (Needs-decision)
 
-Only the **PBP** payloads remain unknown:
+As of v0.2.2, nearly everything is hardware-confirmed. Outstanding items:
 
-- **PBP On / PBP Off** — the reference README mentions "KVM like official MSI
-  Productivity Intelligence" but the source only implements input switching; PBP
-  payloads are not present, and the PBP feature code has not been captured.
+- **PBP main-window source — feature `0x36 0x32`** — ASSUMED to take the input enum
+  (same as the sub-window `0x36 0x31`) but NOT hardware-verified: the user couldn't
+  probe it safely (KVM/USB-C control connection is on the main window). Apps flag it
+  unverified in the UI. Verify when safe.
+- **`0x33` for PBP mode** (a 2nd PBP layout variant) — observed but its exact layout
+  isn't characterised; exposing it is optional.
 
-(KVM → USB-C / Upstream / Auto were unknown/reference-guessed but are now
-**hardware-confirmed** on the MD342CQP — see the KVM switching section above.)
+(KVM, PBP/PIP mode, the PBP sub-window source, and all four inputs incl. HDMI 1/2
+are now **hardware-confirmed** — see the sections above.)
 
-To discover the PBP payloads, one approach is:
-1. On Windows, run the official **MSI Productivity Intelligence** software while
-   capturing USB HID traffic with Wireshark + USBPcap; OR
-2. Use `tools/hid-probe` to sweep the 2-byte feature code at indices [5],[6] while
-   toggling PBP from the OSD and watching for the picture to split.
-3. Record the byte arrays here.
-
-Until the PBP payloads are confirmed, `Command.pbpOn` / `pbpOff` return `payload =
-nil` and are marked unavailable (hidden from the menu, no hotkey). All input and KVM
-actions are live.
+- **No state read-back.** `IOHIDDeviceGetReport` for current input/KVM/mode returns
+  `kIOReturnUnsupported` (`0xE0005000`) — the MD342CQP does not report its state.
+  Apps therefore track the **last-sent** command to show a "current" highlight; this
+  can go stale if the user switches via the physical OSD. See the v0.2.2 design doc.
 
 ### Reference
 

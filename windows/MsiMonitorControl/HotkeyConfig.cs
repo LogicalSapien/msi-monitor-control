@@ -274,10 +274,9 @@ public sealed class HotkeyConfig
     // ------------------------------------------------------------------------
 
     /// <summary>
-    /// The built-in default config: preset <c>cmdShiftCtrl</c> (Windows: Ctrl+Alt+Shift), the
-    /// five available actions (the four inputs/KVM + KVM Auto, live since v0.2.1) bound to their
-    /// default keys, the two UNKNOWN-payload actions (pbpOn/pbpOff) left with an empty array (no
-    /// chord until reverse-engineered), <c>launchAtLogin</c> false, the built-in AltGr list.
+    /// The built-in config: preset <c>cmdShiftCtrl</c> (Windows: Ctrl+Alt+Shift). v0.2.2: all
+    /// eleven actions are bound to default keys — inputs H/J/C/D, KVM K/U/A, PBP/PIP mode O/I/P,
+    /// and the quick-launcher on Space. <c>launchAtLogin</c> false, the built-in AltGr list.
     /// </summary>
     public static HotkeyConfig Default()
     {
@@ -291,13 +290,18 @@ public sealed class HotkeyConfig
             LaunchAtLogin  = false,
             Bindings = new Dictionary<string, List<Chord>>
             {
+                ["inputHDMI1"]  = new() { Bound("H") },  // v0.2.2
+                ["inputHDMI2"]  = new() { Bound("J") },  // v0.2.2
                 ["inputTypeC"]  = new() { Bound("C") },
                 ["inputDP"]     = new() { Bound("D") },
                 ["kvmUSBC"]     = new() { Bound("K") },
                 ["kvmUpstream"] = new() { Bound("U") },
-                ["kvmAuto"]     = new() { Bound("A") },  // v0.2.1: byte[10]=0x30 confirmed → live, seeded.
-                ["pbpOn"]       = new(),   // empty: payload UNKNOWN → no chord
-                ["pbpOff"]      = new(),   // empty: payload UNKNOWN → no chord
+                ["kvmAuto"]     = new() { Bound("A") },
+                // PBP/PIP mode actions ship with default chords (v0.2.2, user reconsider): O/I/P.
+                ["pbpOff"]      = new() { Bound("O") },
+                ["pbpPIP"]      = new() { Bound("I") },
+                ["pbpOn"]       = new() { Bound("P") },
+                ["showLauncher"] = new() { Bound("Space") },  // v0.2.2 quick-launcher
             },
             AltGrAvoidList = MsiMonitorControl.AltGrAvoidList.Default(),
         };
@@ -496,7 +500,7 @@ public sealed class HotkeyConfig
                 // The base key must be one of the v0.2.0 allowed values (A–Z, 0–9). Anything
                 // else (function key, symbol, multi-char) is rejected on load rather than left
                 // in app state to be silently skipped by the registrar (§3.4/§5).
-                var key = chord.Key.Trim().ToUpperInvariant();
+                var key = NormaliseKey(chord.Key);
                 if (!IsValidBaseKey(key))
                 {
                     repaired = true;
@@ -526,10 +530,37 @@ public sealed class HotkeyConfig
         }
     }
 
-    /// <summary>True when <paramref name="key"/> is a v0.2.0-allowed base key (single A–Z or 0–9).</summary>
+    /// <summary>
+    /// Named (non-character) base keys allowed beyond A–Z / 0–9 (docs/SETTINGS.md §3.4). v0.2.2
+    /// adds <c>Space</c> (for the quick-launcher). Compared case-insensitively; the canonical
+    /// stored/written spelling is the value here ("Space").
+    /// </summary>
+    public static readonly string[] NamedKeys = { "Space" };
+
+    /// <summary>
+    /// Normalises a base key to its canonical spelling: a single A–Z/0–9 char is upper-cased; a
+    /// named key (e.g. "space"/"SPACE") folds to its canonical form ("Space"); anything else is
+    /// returned trimmed (and will fail <see cref="IsValidBaseKey"/>). Never throws.
+    /// </summary>
+    public static string NormaliseKey(string key)
+    {
+        var k = (key ?? "").Trim();
+        if (k.Length == 0) return "";
+        foreach (var named in NamedKeys)
+            if (string.Equals(k, named, StringComparison.OrdinalIgnoreCase))
+                return named;             // canonical spelling
+        return k.ToUpperInvariant();      // A–Z / 0–9 (or an invalid token, rejected later)
+    }
+
+    /// <summary>
+    /// True when <paramref name="key"/> is an allowed base key: a single A–Z/0–9 character or a
+    /// canonical named key (§3.4 — currently just "Space"). Pass the normalised key.
+    /// </summary>
     public static bool IsValidBaseKey(string key)
     {
-        if (string.IsNullOrEmpty(key) || key.Length != 1) return false;
+        if (string.IsNullOrEmpty(key)) return false;
+        if (NamedKeys.Contains(key)) return true;       // canonical named key
+        if (key.Length != 1) return false;
         char c = char.ToUpperInvariant(key[0]);
         return (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9');
     }
@@ -614,7 +645,12 @@ public sealed class HotkeyConfig
 
     /// <summary>actionId write-order for the bindings map (docs/SETTINGS.md §3.6, §3.8).</summary>
     internal static readonly string[] CanonicalActionOrder =
-        { "inputTypeC", "inputDP", "kvmUSBC", "kvmUpstream", "kvmAuto", "pbpOn", "pbpOff" };
+    {
+        "inputHDMI1", "inputHDMI2", "inputTypeC", "inputDP",
+        "kvmUSBC", "kvmUpstream", "kvmAuto",
+        "pbpOff", "pbpPIP", "pbpOn",
+        "showLauncher",   // v0.2.2 — app-only quick-launcher
+    };
 
     /// <summary>
     /// Serialises this config to its canonical on-disk JSON (docs/SETTINGS.md §3.8) — LF line
@@ -705,7 +741,8 @@ public sealed class HotkeyConfig
         if (set.Contains(ModAlt))     parts.Add("Alt");
         if (set.Contains(ModShift))   parts.Add("Shift");
         // "command" never reaches here on Windows (dropped on load).
-        parts.Add(chord.Key.ToUpperInvariant());
+        // NormaliseKey keeps a named key's canonical spelling ("Space") and upper-cases A–Z/0–9.
+        parts.Add(NormaliseKey(chord.Key));
         return string.Join("+", parts);
     }
 

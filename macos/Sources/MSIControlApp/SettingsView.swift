@@ -9,11 +9,16 @@ import MSIControl
 struct SettingsView: View {
 
     @ObservedObject var settings: SettingsStore
+    @ObservedObject var deviceState: DeviceState
 
     /// Which (action, index) is currently capturing a new chord, if any.
     @State private var capturing: CaptureTarget?
     /// Transient advisory shown after an AltGr-flagged rebind.
     @State private var advisory: String?
+    /// Selected PBP per-window source inputs (UI state; the monitor can't report
+    /// these back, so they default to HDMI 1 and apply on change).
+    @State private var subSource: InputEnum = .hdmi1
+    @State private var mainSource: InputEnum = .hdmi1
 
     private struct CaptureTarget: Equatable {
         let actionId: String
@@ -28,6 +33,8 @@ struct SettingsView: View {
             presetSection
             Divider()
             bindingsSection
+            Divider()
+            pbpSection
             Divider()
             launchSection
 
@@ -88,36 +95,36 @@ struct SettingsView: View {
         }
     }
 
+    // Column widths for a tidy aligned grid: [label] … [chord] [＋][－].
+    private let labelColumn: CGFloat = 170
+    private let chordColumn: CGFloat = 120
+
     @ViewBuilder
     private func actionRows(for command: Command) -> some View {
         let chords = settings.config.bindings[command.actionId] ?? []
         VStack(alignment: .leading, spacing: 4) {
-            HStack {
-                Text(command.label).frame(width: 160, alignment: .leading)
-                Spacer()
-                Button {
-                    capturing = CaptureTarget(actionId: command.actionId, index: Int.max)
-                } label: {
-                    Image(systemName: "plus.circle").help("Add another hotkey")
-                }
-                .buttonStyle(.borderless)
-            }
-
             if chords.isEmpty && !isAppending(command) {
-                Text("No hotkey")
-                    .font(.caption).foregroundStyle(.secondary)
-                    .padding(.leading, 160)
+                // Single row: label + "No hotkey" placeholder + add button, all on
+                // ONE line in the same columns as bound rows.
+                gridRow(label: command.label, command: command) {
+                    Text("No hotkey")
+                        .frame(width: chordColumn, alignment: .trailing)
+                        .foregroundStyle(.secondary)
+                }
             }
 
+            // One row per chord — label shown only on the first row so extra chords
+            // align under it without repeating the name.
             ForEach(Array(chords.enumerated()), id: \.offset) { index, chord in
-                chordRow(command: command, index: index, chord: chord)
+                chordRow(command: command,
+                         index: index,
+                         chord: chord,
+                         showLabel: index == 0)
             }
 
-            // Active "add another hotkey" capture row (index == Int.max). Without
-            // this the plus button armed capture but rendered no capture view, so
-            // nothing could be appended.
+            // Active "add another hotkey" capture row (index == Int.max).
             if isAppending(command) {
-                appendCaptureRow(command: command)
+                appendCaptureRow(command: command, showLabel: chords.isEmpty)
             }
         }
     }
@@ -126,12 +133,31 @@ struct SettingsView: View {
         capturing == CaptureTarget(actionId: command.actionId, index: Int.max)
     }
 
+    /// A single aligned row: [label column][trailing content][＋ add]. The trailing
+    /// closure supplies the chord/placeholder/capture field (right-aligned).
     @ViewBuilder
-    private func appendCaptureRow(command: Command) -> some View {
-        HStack {
-            Spacer().frame(width: 160)
+    private func gridRow<Trailing: View>(label: String,
+                                         command: Command,
+                                         @ViewBuilder trailing: () -> Trailing) -> some View {
+        HStack(spacing: 8) {
+            Text(label).frame(width: labelColumn, alignment: .leading)
+            trailing()
+            Button {
+                capturing = CaptureTarget(actionId: command.actionId, index: Int.max)
+            } label: {
+                Image(systemName: "plus.circle").help("Add another hotkey")
+            }
+            .buttonStyle(.borderless)
+        }
+    }
+
+    @ViewBuilder
+    private func appendCaptureRow(command: Command, showLabel: Bool) -> some View {
+        HStack(spacing: 8) {
+            Text(showLabel ? command.label : "")
+                .frame(width: labelColumn, alignment: .leading)
             Text("Press a chord…")
-                .frame(minWidth: 110)
+                .frame(width: chordColumn, alignment: .trailing)
                 .foregroundStyle(.secondary)
                 .background(
                     ChordCaptureView(isActive: true) { captured in
@@ -142,21 +168,21 @@ struct SettingsView: View {
                 )
             Button("Cancel") { capturing = nil }
                 .buttonStyle(.borderless)
-            Spacer()
         }
     }
 
     @ViewBuilder
-    private func chordRow(command: Command, index: Int, chord: HotkeyChord) -> some View {
+    private func chordRow(command: Command, index: Int, chord: HotkeyChord, showLabel: Bool) -> some View {
         let isCapturing = capturing == CaptureTarget(actionId: command.actionId, index: index)
         let conflicted = settings.osRejectedActions.contains(command.actionId)
-        HStack {
-            Spacer().frame(width: 160)
+        HStack(spacing: 8) {
+            Text(showLabel ? command.label : "")
+                .frame(width: labelColumn, alignment: .leading)
             Button {
                 capturing = CaptureTarget(actionId: command.actionId, index: index)
             } label: {
                 Text(isCapturing ? "Press a chord…" : chord.display)
-                    .frame(minWidth: 110)
+                    .frame(width: chordColumn, alignment: .trailing)
             }
             .background(
                 ChordCaptureView(isActive: isCapturing) { captured in
@@ -191,6 +217,76 @@ struct SettingsView: View {
                 advisory = "\(chord.display) is already used by “\(label)”. Binding unchanged."
             case .altGrWarning(let key):
                 advisory = "Note: ‘\(key)’ with ⌥ may clash with an AltGr character on some EU keyboard layouts."
+            }
+        }
+    }
+
+    // MARK: Picture-by-Picture
+
+    private var pbpSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Picture-by-Picture").font(.headline)
+
+            // Mode — drives the pbpOff/pbpPIP/pbpOn commands and reflects the tracked
+            // "current" mode (best-effort; monitor can't report state).
+            HStack(spacing: 8) {
+                Text("Mode").frame(width: labelColumn, alignment: .leading)
+                Picker("Mode", selection: pbpModeBinding) {
+                    Text("Off").tag(Command.pbpOff)
+                    Text("PIP").tag(Command.pbpPIP)
+                    Text("PBP").tag(Command.pbpOn)
+                }
+                .labelsHidden()
+                .pickerStyle(.segmented)
+                .disabled(!deviceState.isConnected)
+            }
+
+            // Sub-window source (feature 0x36 0x31 — hardware-confirmed).
+            sourceRow(title: "Right / inset source", window: .sub,
+                      selection: $subSource)
+
+            // Main-window source (feature 0x36 0x32 — ASSUMED, not verified).
+            sourceRow(title: "Left / main source", window: .main,
+                      selection: $mainSource,
+                      footnote: "Unverified — the main-window source command isn’t hardware-confirmed yet.")
+        }
+    }
+
+    /// Two-way binding: get reflects the tracked current PBP mode (default Off);
+    /// set sends the corresponding command.
+    private var pbpModeBinding: Binding<Command> {
+        Binding(
+            get: { deviceState.currentByGroup[.pbpMode] ?? .pbpOff },
+            set: { deviceState.send($0) }
+        )
+    }
+
+    @ViewBuilder
+    private func sourceRow(title: String,
+                           window: PBPWindow,
+                           selection: Binding<InputEnum>,
+                           footnote: String? = nil) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 8) {
+                Text(title).frame(width: labelColumn, alignment: .leading)
+                Picker(title, selection: selection) {
+                    ForEach(InputEnum.allCases, id: \.self) { input in
+                        Text(input.label).tag(input)
+                    }
+                }
+                .labelsHidden()
+                .frame(width: chordColumn + 60)
+                .disabled(!deviceState.isConnected)
+                // Single-arg onChange for macOS 13 compatibility (the two-arg form
+                // is macOS 14+).
+                .onChange(of: selection.wrappedValue) { newValue in
+                    deviceState.setPBPSource(window: window, input: newValue)
+                }
+            }
+            if let footnote {
+                Text(footnote)
+                    .font(.caption).foregroundStyle(.secondary)
+                    .padding(.leading, labelColumn)
             }
         }
     }
@@ -256,15 +352,22 @@ private struct ChordCaptureView: NSViewRepresentable {
             if event.modifierFlags.contains(.option)  { mods.insert(.option) }
             if event.modifierFlags.contains(.shift)   { mods.insert(.shift) }
             if event.modifierFlags.contains(.command) { mods.insert(.command) }
+            guard !mods.isEmpty else { return }   // need at least one modifier
 
-            // Require at least one modifier and exactly one valid base A–Z / 0–9 key.
-            guard !mods.isEmpty,
-                  let chars = event.charactersIgnoringModifiers?.uppercased(),
-                  let ch = chars.first,
-                  HotkeyChord.isValidKey(String(ch)) else {
+            // Resolve the base key: Space (keyCode 49) maps to the named "Space" key;
+            // otherwise the typed A–Z / 0–9 character.
+            let key: String
+            if event.keyCode == 49 {
+                key = "Space"
+            } else if let ch = event.charactersIgnoringModifiers?.uppercased().first {
+                key = String(ch)
+            } else {
+                return
+            }
+            guard HotkeyChord.isValidKey(key) else {
                 return   // ignore until a valid chord is pressed
             }
-            onCapture?(HotkeyChord(mods: mods, key: String(ch)))
+            onCapture?(HotkeyChord(mods: mods, key: key))
             stop()
         }
 

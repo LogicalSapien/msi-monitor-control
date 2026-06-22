@@ -26,12 +26,19 @@ final class HotkeyConfigTests: XCTestCase {
         XCTAssertEqual(def.schemaVersion, kHotkeyConfigSchemaVersion)
         XCTAssertEqual(def.preset, .cmdShiftCtrl)
         XCTAssertFalse(def.launchAtLogin)
-        // Available commands get the default ⌃⇧⌘ chord on their default key; UNKNOWN
-        // ones are bound to an empty array (no chord).
-        XCTAssertEqual(def.bindings["inputTypeC"], [HotkeyChord(mods: [.control, .shift, .command], key: "C")])
-        // KVM Auto is now available (hardware-confirmed payload) → it gets a chord.
-        XCTAssertEqual(def.bindings["kvmAuto"], [HotkeyChord(mods: [.control, .shift, .command], key: "A")])
-        XCTAssertEqual(def.bindings["pbpOn"], [])
+        // Commands with a defaultKey get the default ⌃⇧⌘ chord on it; the PBP/PIP
+        // modes (no defaultKey — menu-only) get an empty array.
+        let mods: Set<HotkeyModifier> = [.control, .shift, .command]
+        XCTAssertEqual(def.bindings["inputHDMI1"], [HotkeyChord(mods: mods, key: "H")])
+        XCTAssertEqual(def.bindings["inputHDMI2"], [HotkeyChord(mods: mods, key: "J")])
+        XCTAssertEqual(def.bindings["inputTypeC"], [HotkeyChord(mods: mods, key: "C")])
+        XCTAssertEqual(def.bindings["kvmAuto"], [HotkeyChord(mods: mods, key: "A")])
+        // PBP/PIP modes now ship WITH default chords (O/I/P).
+        XCTAssertEqual(def.bindings["pbpOff"], [HotkeyChord(mods: mods, key: "O")])
+        XCTAssertEqual(def.bindings["pbpPIP"], [HotkeyChord(mods: mods, key: "I")])
+        XCTAssertEqual(def.bindings["pbpOn"], [HotkeyChord(mods: mods, key: "P")])
+        // The quick-launcher UI action defaults to ⌃⇧⌘Space.
+        XCTAssertEqual(def.bindings["showLauncher"], [HotkeyChord(mods: mods, key: "Space")])
         // Every command has a key in the map.
         for command in Command.allCases {
             XCTAssertNotNil(def.bindings[command.actionId], "missing binding for \(command.actionId)")
@@ -377,9 +384,24 @@ final class HotkeyConfigTests: XCTestCase {
     func testKeyValidationHelper() {
         XCTAssertTrue(HotkeyChord.isValidKey("C"))
         XCTAssertTrue(HotkeyChord.isValidKey("7"))
+        XCTAssertTrue(HotkeyChord.isValidKey("Space"), "named key Space is valid")
         XCTAssertFalse(HotkeyChord.isValidKey("AB"))
         XCTAssertFalse(HotkeyChord.isValidKey(""))
         XCTAssertFalse(HotkeyChord.isValidKey("é"))
+        XCTAssertFalse(HotkeyChord.isValidKey("Tab"), "unrecognised named keys are invalid")
+    }
+
+    func testNamedKeyNormalisationAndDisplay() {
+        // "space"/"SPACE"/"Space" all canonicalise to "Space".
+        XCTAssertEqual(HotkeyChord.normaliseKey("space"), "Space")
+        XCTAssertEqual(HotkeyChord.normaliseKey("SPACE"), "Space")
+        XCTAssertEqual(HotkeyChord(mods: [.control, .shift, .command], key: "space").key, "Space")
+        // Named keys render as a word with a separating space, not a mashed glyph.
+        XCTAssertEqual(HotkeyChord(mods: [.control, .shift, .command], key: "Space").display, "⌃⇧⌘ Space")
+        // A round-trip through the decoder accepts and normalises "Space".
+        let json = #"{"mods":["control","shift","command"],"key":"Space"}"#.data(using: .utf8)!
+        let chord = try? JSONDecoder().decode(HotkeyChord.self, from: json)
+        XCTAssertEqual(chord?.key, "Space")
     }
 
     // MARK: Commit / rollback decision (SETTINGS.md §3.5/§5, Codex blocker #4)
