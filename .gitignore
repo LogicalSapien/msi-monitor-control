@@ -1,0 +1,11 @@
+# macOS / Swift / Xcode
+.DS_Store
+macos/.build/
+macos/.swiftpm/
+*.xcuserdata/
+DerivedData/
+
+# Windows / .NET
+windows/bin/
+windows/obj/
+*.user
