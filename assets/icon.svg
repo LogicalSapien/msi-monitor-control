@@ -1,0 +1,89 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <!-- macOS squircle background gradient -->
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#22334A;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#111E2E;stop-opacity:1" />
+    </linearGradient>
+    <!-- Screen inner glow -->
+    <linearGradient id="screenGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#1A2940;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#0E1A28;stop-opacity:1" />
+    </linearGradient>
+    <!-- Arrow accent gradient -->
+    <linearGradient id="arrowGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#00D4C2;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#0098A8;stop-opacity:1" />
+    </linearGradient>
+    <!-- Drop shadow for monitor -->
+    <filter id="monitorShadow" x="-5%" y="-5%" width="110%" height="120%">
+      <feDropShadow dx="0" dy="8" stdDeviation="12" flood-color="#000000" flood-opacity="0.35"/>
+    </filter>
+    <!-- Soft glow for arrows -->
+    <filter id="arrowGlow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="6" result="blur"/>
+      <feFlood flood-color="#00D4C2" flood-opacity="0.5" result="color"/>
+      <feComposite in="color" in2="blur" operator="in" result="glow"/>
+      <feMerge>
+        <feMergeNode in="glow"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <clipPath id="squircleClip">
+      <!-- macOS squircle: 224px corner radius on a 1024 canvas -->
+      <path d="M512,32 C748,32 992,276 992,512 C992,748 748,992 512,992 C276,992 32,748 32,512 C32,276 276,32 512,32 Z"/>
+    </clipPath>
+  </defs>
+
+  <!-- Squircle background -->
+  <path d="M512,32 C748,32 992,276 992,512 C992,748 748,992 512,992 C276,992 32,748 32,512 C32,276 276,32 512,32 Z"
+        fill="url(#bgGrad)"/>
+
+  <!-- Monitor body / bezel (outer rounded rect) -->
+  <g filter="url(#monitorShadow)">
+    <rect x="168" y="210" width="688" height="464" rx="40" ry="40"
+          fill="#D0D8E4"/>
+  </g>
+
+  <!-- Monitor screen (inner dark panel) -->
+  <rect x="200" y="242" width="624" height="396" rx="20" ry="20"
+        fill="url(#screenGrad)"/>
+
+  <!-- Very subtle screen shine line -->
+  <rect x="200" y="242" width="624" height="6" rx="3" ry="3"
+        fill="#FFFFFF" opacity="0.08"/>
+
+  <!-- Monitor stand neck -->
+  <rect x="480" y="674" width="64" height="68" rx="8" ry="8"
+        fill="#B8C2CF"/>
+
+  <!-- Monitor stand base -->
+  <rect x="370" y="738" width="284" height="36" rx="18" ry="18"
+        fill="#B0BAC7"/>
+
+  <!-- ─── Switch / arrows motif (two curved opposing arrows) ─── -->
+  <!-- These represent input-switching: one arrow curves upper-left→right, -->
+  <!-- the other lower-right→left. Together they form the "switch" idea. -->
+  <!-- Arrow 1: upper arc — goes left-to-right (top half of exchange symbol) -->
+  <g filter="url(#arrowGlow)">
+    <!-- Top arrow: path curving from left to right, pointing right -->
+    <path d="M338,462 C338,390 440,346 512,346 C584,346 686,390 686,462"
+          fill="none" stroke="url(#arrowGrad)" stroke-width="42"
+          stroke-linecap="round" stroke-linejoin="round"/>
+    <!-- Arrowhead pointing right at end of top arc -->
+    <polygon points="686,462 640,418 732,418"
+             fill="url(#arrowGrad)"/>
+
+    <!-- Bottom arrow: path curving from right to left, pointing left -->
+    <path d="M686,542 C686,614 584,658 512,658 C440,658 338,614 338,542"
+          fill="none" stroke="url(#arrowGrad)" stroke-width="42"
+          stroke-linecap="round" stroke-linejoin="round"/>
+    <!-- Arrowhead pointing left at end of bottom arc -->
+    <polygon points="338,542 384,586 292,586"
+             fill="url(#arrowGrad)"/>
+  </g>
+
+  <!-- Thin highlight rim on monitor bezel (top edge) -->
+  <rect x="168" y="210" width="688" height="8" rx="4" ry="4"
+        fill="#FFFFFF" opacity="0.18"/>
+</svg>
