@@ -111,7 +111,8 @@ See `tools/README.md` for full usage, sweep mode, and interpretation guide.
 2. Human: smoke-test on the real MD342CQP (Input → Type-C and Input → DP).
 3. If PBP/KVM are needed: USB HID capture session → fill payloads in PROTOCOL.md +
    update `Command.cs` (both macOS and Windows).
-4. Phase 2: packaging (`.exe` installer / `.dmg`) and GitHub Releases — separate plan.
+4. **Phase 2 DONE (commit 6e513f7):** `.github/workflows/release.yml` published.
+   Cut first release: `git tag v0.1.0 && git push origin v0.1.0`.
 
 ## Decisions (with why)
 
