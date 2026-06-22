@@ -51,18 +51,24 @@ internal sealed class HotKeys : IMessageFilter, IDisposable
     [DllImport("user32.dll", SetLastError = true)]
     private static extern bool UnregisterHotKey(IntPtr hWnd, int id);
 
+    // Base offset for hotkey IDs. RegisterHotKey IDs are thread-global, so low values
+    // (1..6) risk a silent collision with another library that also registers thread-level
+    // hotkeys starting at 1. An app-specific base makes a clash very unlikely.
+    private const int HotkeyIdBase = 0x2000;
+
     private readonly Action<CommandKind> _onCommand;
     private readonly List<int> _registeredIds = new();
+    private readonly Dictionary<int, CommandKind> _commandById = new();
     private bool _disposed;
 
     private static readonly (int Id, uint Vk, char Key, CommandKind Command)[] Bindings =
     {
-        (1, VkP, 'P', CommandKind.PbpOn),
-        (2, VkO, 'O', CommandKind.PbpOff),
-        (3, VkK, 'K', CommandKind.KvmUsbC),
-        (4, VkU, 'U', CommandKind.KvmUpstream),
-        (5, VkC, 'C', CommandKind.InputTypeC),
-        (6, VkD, 'D', CommandKind.InputDp),
+        (HotkeyIdBase + 1, VkP, 'P', CommandKind.PbpOn),
+        (HotkeyIdBase + 2, VkO, 'O', CommandKind.PbpOff),
+        (HotkeyIdBase + 3, VkK, 'K', CommandKind.KvmUsbC),
+        (HotkeyIdBase + 4, VkU, 'U', CommandKind.KvmUpstream),
+        (HotkeyIdBase + 5, VkC, 'C', CommandKind.InputTypeC),
+        (HotkeyIdBase + 6, VkD, 'D', CommandKind.InputDp),
     };
 
     /// <summary>
@@ -88,6 +94,7 @@ internal sealed class HotKeys : IMessageFilter, IDisposable
             if (RegisterHotKey(IntPtr.Zero, id, ModCtrl | ModAlt, vk))
             {
                 _registeredIds.Add(id);
+                _commandById[id] = command;
             }
             else
             {
@@ -101,7 +108,20 @@ internal sealed class HotKeys : IMessageFilter, IDisposable
         }
 
         FailedChords = failed;
-        Application.AddMessageFilter(this);
+
+        try
+        {
+            Application.AddMessageFilter(this);
+        }
+        catch
+        {
+            // Don't leave a permanently-installed filter or registered hotkeys behind on
+            // a partially-constructed instance.
+            Application.RemoveMessageFilter(this);
+            foreach (var id in _registeredIds)
+                UnregisterHotKey(IntPtr.Zero, id);
+            throw;
+        }
     }
 
     /// <summary>
@@ -113,18 +133,27 @@ internal sealed class HotKeys : IMessageFilter, IDisposable
         {
             var id = m.WParam.ToInt32();
             Debug.WriteLine($"[HotKeys] WM_HOTKEY received (id={id}).");
-            foreach (var (bindId, _, _, command) in Bindings)
+            if (_commandById.TryGetValue(id, out var command))
             {
-                if (bindId == id)
-                {
-                    _onCommand(command);
-                    return true; // handled — don't propagate further
-                }
+                _onCommand(command);
+                return true; // handled — don't propagate further
             }
         }
         return false;
     }
 
+    /// <summary>
+    /// Unregisters all hotkeys and removes the message filter.
+    /// </summary>
+    /// <remarks>
+    /// MUST be called on the same UI (STA) thread that constructed this instance.
+    /// <c>UnregisterHotKey</c> only affects hotkeys owned by the calling thread, and
+    /// <c>Application.RemoveMessageFilter</c> operates on the calling thread's filter list,
+    /// so disposing from another thread would silently fail to clean up. In this app
+    /// <see cref="TrayApp"/> disposes us during its own <c>Dispose</c> on the UI thread,
+    /// which satisfies this. If that ever changes, marshal this call via the UI thread's
+    /// <see cref="System.Threading.SynchronizationContext"/>.
+    /// </remarks>
     public void Dispose()
     {
         if (_disposed) return;
@@ -134,5 +163,6 @@ internal sealed class HotKeys : IMessageFilter, IDisposable
         foreach (var id in _registeredIds)
             UnregisterHotKey(IntPtr.Zero, id);
         _registeredIds.Clear();
+        _commandById.Clear();
     }
 }
