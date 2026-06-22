@@ -106,9 +106,25 @@ internal sealed class TrayApp : ApplicationContext
 
     private void ExitApp()
     {
-        _hotKeys.Dispose();
-        _trayIcon.Visible = false;
-        _trayIcon.Dispose();
-        Application.Exit();
+        // ExitThread disposes this ApplicationContext, which routes through
+        // Dispose(bool) below for cleanup.
+        ExitThread();
+    }
+
+    private bool _disposed;
+
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing && !_disposed)
+        {
+            _disposed = true;
+            // Ensures cleanup happens even if Application.Run returns by another path,
+            // not only via the Exit menu item.
+            _hotKeys.Dispose();
+            _trayIcon.Visible = false;
+            _trayIcon.Dispose();
+        }
+
+        base.Dispose(disposing);
     }
 }

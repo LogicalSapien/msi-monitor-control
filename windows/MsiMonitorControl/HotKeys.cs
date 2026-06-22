@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
 
@@ -21,6 +22,10 @@ namespace MsiMonitorControl;
 internal sealed class HotKeys : NativeWindow, IDisposable
 {
     private const int WmHotkey = 0x0312;
+
+    // HWND_MESSAGE: parent value that creates a message-only window
+    // (invisible, non-interactive — exists purely to receive WM_HOTKEY).
+    private const int HwndMessage = -3;
 
     // Win32 modifier flags
     private const uint ModAlt  = 0x0001;
@@ -66,13 +71,21 @@ internal sealed class HotKeys : NativeWindow, IDisposable
         var cp = new CreateParams
         {
             Caption = "MsiMonitorControlHotKeys",
-            // -3 = HWND_MESSAGE: a message-only window, invisible and non-interactive.
-            Parent = new IntPtr(-3),
+            Parent = new IntPtr(HwndMessage),
         };
         CreateHandle(cp);
 
-        foreach (var (id, vk, _) in Bindings)
-            RegisterHotKey(Handle, id, ModCtrl | ModAlt, vk);
+        foreach (var (id, vk, command) in Bindings)
+        {
+            if (!RegisterHotKey(Handle, id, ModCtrl | ModAlt, vk))
+            {
+                // A chord already owned by another process fails here. Don't crash —
+                // just record it so the failure isn't silent. The other hotkeys still bind.
+                var err = Marshal.GetLastWin32Error();
+                Debug.WriteLine(
+                    $"[HotKeys] Failed to register Ctrl+Alt+{(char)vk} for {command} (Win32 error {err}).");
+            }
+        }
     }
 
     protected override void WndProc(ref Message m)

@@ -72,6 +72,8 @@ public sealed class MsiDevice
             // Per docs/PROTOCOL.md §HID interface: report type is Output.
             // HidSharp's HidStream.Write() sends an Output report — correct here.
             using var stream = _device.Open();
+            // Don't block indefinitely if the device stalls or stops responding.
+            stream.WriteTimeout = 1000; // milliseconds
             stream.Write(payload);
             return MsiResult.Success;
         }
