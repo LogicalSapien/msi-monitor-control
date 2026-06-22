@@ -158,7 +158,8 @@ public sealed class HotkeyConfig
     {
         WriteIndented = true,
         // Match the §3.8 canonical escaping (unescaped `/ @ { } [ ]`) — required for the
-        // byte-identical fixture. STJ writes LF + `": "` + 2-space indent deterministically.
+        // byte-identical fixture. STJ writes `": "` + 2-space indent deterministically; it uses
+        // the PLATFORM newline (CRLF on Windows/.NET 8), which ToJson() normalises to LF.
         Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
         // We emit lower-camelCase enum values ("hyper", "ctrlShift", "legacy", "custom")
         // to match the shared schema and the macOS Codable output.
@@ -590,9 +591,15 @@ public sealed class HotkeyConfig
     // with WriteIndented produces it — we only add the controls STJ lacks:
     //   • UnsafeRelaxedJsonEscaping → unescaped `/ @ { } [ ]` (matches §3.8);
     //   • BindingsConverter → canonical actionId order + `option` modifier spelling + mods/key order;
+    //   • LF line endings — see the CRLF note below;
     //   • a single trailing newline appended here (STJ omits it; §3.8 requires exactly one);
     //   • UTF-8 no BOM (SaveTo).
-    // STJ's Utf8 indented writer emits LF on every platform, so output is identical on win/CI.
+    //
+    // CRLF BUG (the reason we post-process): on .NET 8, System.Text.Json's WriteIndented uses the
+    // PLATFORM newline — `Environment.NewLine`, i.e. CRLF on Windows. (`JsonWriterOptions.NewLine`
+    // that would let us force LF only exists in .NET 9+.) The CI target is net8.0-windows, so
+    // stock STJ would emit CRLF at runtime → NOT byte-identical to the macOS LF file. We therefore
+    // normalise `\r\n`→`\n` after serialising. The contract is LF EVERYWHERE.
     // ------------------------------------------------------------------------
 
     /// <summary>actionId write-order for the bindings map (docs/SETTINGS.md §3.6, §3.8).</summary>
@@ -600,12 +607,19 @@ public sealed class HotkeyConfig
         { "inputTypeC", "inputDP", "kvmUSBC", "kvmUpstream", "kvmAuto", "pbpOn", "pbpOff" };
 
     /// <summary>
-    /// Serialises this config to its canonical on-disk JSON (docs/SETTINGS.md §3.8) — including
-    /// the single trailing newline — so <c>Default().ToJson()</c> equals the shared fixture
-    /// byte-for-byte. Stock System.Text.Json gives the §3.8 layout; <see cref="BindingsConverter"/>
-    /// drives actionId order + the `option` spelling; the trailing newline is added here.
+    /// Serialises this config to its canonical on-disk JSON (docs/SETTINGS.md §3.8) — LF line
+    /// endings, single trailing newline — so <c>Default().ToJson()</c> equals the shared fixture
+    /// byte-for-byte on every platform. Stock System.Text.Json gives the §3.8 layout;
+    /// <see cref="BindingsConverter"/> drives actionId order + the `option` spelling; we then force
+    /// LF (STJ emits the platform newline on .NET 8) and ensure exactly one trailing newline.
     /// </summary>
-    public string ToJson() => JsonSerializer.Serialize(this, SerialiserOptions) + "\n";
+    public string ToJson()
+    {
+        // Force LF (STJ's WriteIndented emits CRLF on Windows/.NET 8 — see the CRLF note above).
+        var json = JsonSerializer.Serialize(this, SerialiserOptions).Replace("\r\n", "\n");
+        // Exactly one trailing newline (STJ emits none); guard against any pre-existing one.
+        return json.TrimEnd('\n') + "\n";
+    }
 
     // ------------------------------------------------------------------------
     // Validation (docs/SETTINGS.md §3.5)

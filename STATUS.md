@@ -262,6 +262,23 @@ Sanitise drop-branches (each sets the flag) and every `Assert.True(repaired)` te
 through one. The byte-equality test PASSED in that CI run (byte-identity confirmed on real
 dotnet). Awaiting lead's follow-up push + re-run.
 
+**CI follow-up #2 (line endings — msi-windows):** the `.gitattributes` `eol=lf` pin (lead,
+bcf6133) fixed the fixture side. Test-hardening on my side:
+`DefaultToJson_EqualsSharedFixture_ByteForByte` normalises the fixture-on-disk's `\r\n`→`\n`
+and positively asserts `ToJson()` contains no `\r`.
+
+**CI follow-up #3 (REAL serialiser bug — msi-windows):** with the fixture now LF, CI exposed
+the actual interop bug: **System.Text.Json `WriteIndented` emits the PLATFORM newline — CRLF on
+Windows/.NET 8** (`JsonWriterOptions.NewLine` to force LF only exists in .NET 9+; CI target is
+net8.0-windows). So the config the Windows app WROTE AT RUNTIME used CRLF → NOT byte-identical
+to the macOS LF file — a genuine contract break, invisible on the dev Mac (same code emits LF
+there). This was my incorrect "STJ emits LF on every platform" assumption. **Fix:** `ToJson()`
+now normalises `\r\n`→`\n` after serialising, then ensures exactly one trailing `\n`
+(`json.Replace("\r\n","\n").TrimEnd('\n') + "\n"`). Runtime output is now LF everywhere,
+byte-identical to the fixture + macOS. The test's `Assert.DoesNotContain("\r", actual)` now
+positively guards this. **The lesson: "correct-by-construction" on a Mac cannot catch
+platform-newline behaviour — real windows-latest execution was required.**
+
 ## Blockers
 
 - **PBP On/Off payloads** — UNKNOWN. Use `hid-probe` on hardware (sweep the feature-code

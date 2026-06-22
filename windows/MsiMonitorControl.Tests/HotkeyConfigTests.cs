@@ -48,13 +48,25 @@ public class HotkeyConfigTests
     [Fact]
     public void DefaultToJson_EqualsSharedFixture_ByteForByte()
     {
-        // §3.8: each app asserts default.save() bytes == the fixture bytes. This is the cross-app
-        // canonical-format proof on the Windows side.
+        // §3.8: each app asserts default.save() == the canonical fixture, byte-for-byte. This is
+        // the cross-app canonical-format proof on the Windows side.
+        //
+        // The contract EOL is LF (`\n`) with a single trailing newline; the app ALWAYS emits LF
+        // (asserted positively below). We normalise the fixture-ON-DISK's CRLF→LF before comparing
+        // only because Git autocrlf / a Windows editor can rewrite the checked-out fixture to
+        // CRLF — that's a working-tree artefact, not a contract difference. .gitattributes pins
+        // the fixture to eol=lf; this normalisation is belt-and-braces so the test can't regress
+        // if someone's editor rewrites it. We do NOT loosen the rest of the byte comparison.
         var path = Path.Combine(AppContext.BaseDirectory, "fixtures", "settings.example.json");
         Assert.True(File.Exists(path), $"Fixture not copied to output: {path}");
 
-        var expected = File.ReadAllText(path);
+        var fixtureOnDisk = File.ReadAllText(path);
+        var expected = fixtureOnDisk.Replace("\r\n", "\n");
         var actual = HotkeyConfig.Default().ToJson();
+
+        // The app's runtime output is LF — pin that positively so a regression to CRLF fails here
+        // regardless of how the fixture happens to be checked out.
+        Assert.DoesNotContain("\r", actual);
 
         Assert.Equal(expected, actual);
     }
