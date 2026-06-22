@@ -40,9 +40,10 @@ Phase 1 code complete + post-MVP hardening. Awaiting CI green + human smoke test
 2 skipped (monitor physically connected on dev machine — will run fully in CI), 0 failed.**
 
 **Key decisions:**
-- `Command.inputTypeC` and `Command.inputDP` have real 53-byte payloads from PROTOCOL.md.
-- `pbpOn`, `pbpOff`, `kvmUSBC`, `kvmUpstream` return `payload = nil` — UNKNOWN, never invented.
-  Hidden from menu + hotkeys until confirmed payloads are added.
+- `Command.inputTypeC`/`inputDP` (Phaseowner ref) and `kvmUSBC`/`kvmUpstream` (kdar ref)
+  have real 53-byte payloads from PROTOCOL.md — all four are live menu items + hotkeys.
+- `pbpOn`, `pbpOff` return `payload = nil` — still UNKNOWN, never invented. Hidden from
+  menu + hotkeys until confirmed payloads are added (probe the feature-code pair).
 - `MSIDevice.send()` returns `.payloadUnavailable` for nil-payload commands.
 - `NSApp.setActivationPolicy(.accessory)` used instead of `Info.plist LSUIElement` —
   SwiftPM executables cannot embed a custom Info.plist.
@@ -99,8 +100,11 @@ See `tools/README.md` for full usage, sweep mode, and interpretation guide.
 
 ## Blockers
 
-- **PBP On/Off and KVM USB-C/Upstream payloads** — UNKNOWN. Use `hid-probe` on hardware
-  to discover them (see `tools/README.md`), then fill them into PROTOCOL.md.
+- **PBP On/Off payloads** — UNKNOWN. Use `hid-probe` on hardware (sweep the feature-code
+  pair at indices [5],[6]; see `tools/README.md`), then fill them into PROTOCOL.md.
+- **KVM payloads — KNOWN** (from kdar/msi-monitor-ctrl) but the position→port mapping
+  (USB-C=0, Upstream=1) is UNCONFIRMED, and KVM-over-HID-SetReport is unverified. Human
+  to confirm on the MD342CQP and flip the mapping if wrong.
 - **CI green confirmation** — needs the push to trigger the GitHub Actions `windows-latest`
   job. The human should verify it passes (no real monitor attached in CI, so device-not-found
   tests are the expected pass state).
