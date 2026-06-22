@@ -1,0 +1,38 @@
+name: Build
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  macos:
+    name: macOS — Swift build & test
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: macos
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build
+        run: swift build
+      - name: Test
+        run: swift test
+
+  windows:
+    name: Windows — .NET build & test
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: windows
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Restore
+        run: dotnet restore MsiMonitorControl.sln
+      - name: Build
+        run: dotnet build MsiMonitorControl.sln --no-restore --configuration Release
+      - name: Test
+        run: dotnet test MsiMonitorControl.sln --no-build --configuration Release --verbosity normal
