@@ -81,22 +81,34 @@ Three single-file Swift scripts in `tools/` — no Xcode, no dependencies beyond
 |:-----|:-----|:--------|
 | `hid-info` | `tools/hid-info/hid-info.swift` | Enumerate HID interfaces; confirm connectivity; verify passive capture is not viable |
 | `hid-capture` | `tools/hid-capture/hid-capture.swift` | Input-report listener — expected to capture nothing; run once to verify |
-| `hid-probe` | `tools/hid-probe/hid-probe.swift` | **Primary RE tool** — interactive opcode prober; send candidates, observe monitor |
+| `hid-probe` | `tools/hid-probe/hid-probe.swift` | **Primary RE tool** — feature/value prober; sweep feature codes, observe monitor |
+
+**Command grammar (kdar/msi-monitor-ctrl, verified against PROTOCOL.md):**
+`[01 35 RW 30 30 FEAT_HI FEAT_LO 30 30 30 (30+value) 0d]` padded to 53 bytes.
+RW: write=0x62, read=0x38. FEATURE = 2 bytes at indices 5,6. Value = index 10.
+Known features: Input=0x35,0x30 ; KVM=0x38,0x3e ; **PBP=UNKNOWN**.
+KEY INSIGHT: PBP is another 2-byte FEATURE code, NOT a value-byte variant — sweep the
+feature pair (indices 5,6), not the value byte.
 
 **Capture method verdict:**
 - Passive `IOHIDManager` listening captures NOTHING for OSD-triggered actions. The MD342CQP
   protocol is output-only (host → monitor). OSD button presses are internal to the firmware.
-- **Opcode probing via `hid-probe` is the recommended path.** The protocol is ASCII with
-  one byte varying; ~20 candidates cover the likely PBP/KVM opcode range.
+- **Feature probing via `hid-probe` is the recommended path.** Hold value=1 ("on"), sweep
+  the 2-byte feature pair over 0x30–0x3f, watch for PBP turning on.
 - Wireshark + USBPcap on Windows remains the alternative if MSI Productivity Intelligence is available.
 
 **Exact command + OSD sequence:**
 ```bash
-swift tools/hid-info/hid-info.swift          # confirm device is visible
-swift tools/hid-probe/hid-probe.swift        # interactive probe
-# → choose option 3 or 4 (known-good baseline), then try ? candidates
+swift tools/hid-info/hid-info.swift                                  # confirm device visible
+swift tools/hid-probe/hid-probe.swift --feature 0x35 0x30 --value 3 # baseline: Input → Type-C
+swift tools/hid-probe/hid-probe.swift                                # menu → "f" (PBP discovery)
+# Before the sweep: set PBP OFF via OSD + connect two sources; answer 'y' when picture splits.
 ```
-See `tools/README.md` for full usage, sweep mode, and interpretation guide.
+See `tools/README.md` for full usage, the grammar, and sweep modes.
+
+**Note from device-absent testing:** this dev machine reports a separate VID=0x1462 PID=0x3fa4
+device ("MSI Gaming Controller"). The tool correctly matched + opened it and reported a clean
+send failure (kIOReturnNotPermitted) — matching/payload logic verified; send succeeds on the real monitor.
 
 ## Blockers
 

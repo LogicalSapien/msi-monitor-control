@@ -175,34 +175,64 @@ The only scenario where Wireshark on macOS would help is if MSI's own desktop so
 (Windows-only) were running on the same machine and issuing output reports — but that
 software does not exist for macOS.
 
-### Recommended method: opcode probing via `hid-probe`
+### The command grammar (kdar reference)
 
-Since the protocol is ASCII text with a **single byte** varying per action, a small
-candidate sweep discovers PBP and KVM payloads without any bus capture at all:
+A second reference, [kdar/msi-monitor-ctrl](https://github.com/kdar/msi-monitor-ctrl)
+(`src/device.rs`), revealed the full command grammar for this monitor.  Every command is a
+53-byte ASCII report:
+
+```
+Index  0    1    2    3    4    5       6       7    8    9    10          11    12..
+Byte   01   35   RW   30   30   FEAT_HI FEAT_LO 30   30   30   (30+value)  0d    00 (padding)
+            '5'                 └── feature ──┘                 value           '\r'
+```
+
+- **RW** (index 2): `0x62` = write, `0x38` = read.
+- **FEATURE** (indices 5,6): a **2-byte** selector — picks *what* you are changing.
+- **VALUE** (index 10): `0x30 + position` — picks *which option* within the feature.
+
+| Feature | FEAT_HI, FEAT_LO | Values |
+|:--------|:-----------------|:-------|
+| Input   | `0x35, 0x30`     | `0`=HDMI 1, `1`=HDMI 2, `2`=DP, `3`=Type-C |
+| KVM     | `0x38, 0x3e`     | selects KVM source (confirmed in kdar) |
+| **PBP** | **UNKNOWN**      | the target of the feature sweep below |
+
+This corroborates the known Input payloads in PROTOCOL.md exactly (`RW=0x62`,
+`FEAT=0x35,0x30`, value at index 10).
+
+> **Key insight:** PBP is almost certainly *another 2-byte feature code* at indices 5,6 —
+> **not** a different value byte at index 10.  A value-byte sweep will never find it.
+> The realistic discovery route is a **feature-pair sweep** holding the value byte fixed
+> at `1` ("on").
+
+### Recommended method: feature probing via `hid-probe`
 
 ```bash
 # Step 1 — confirm the device is visible (run from repo root)
 swift tools/hid-info/hid-info.swift
 
-# Step 2 — interactive probe: send one candidate at a time, watch the monitor
-swift tools/hid-probe/hid-probe.swift
+# Step 2 — confirm a known feature reaches the monitor (baseline)
+swift tools/hid-probe/hid-probe.swift --feature 0x35 0x30 --value 3   # Input → Type-C
 
-# Or — sweep a range without re-invoking:
-swift tools/hid-probe/hid-probe.swift --sweep 0x34 0x50
+# Step 3 — hunt for PBP: interactive guided feature sweep
+swift tools/hid-probe/hid-probe.swift            # then choose menu option "f"
+
+# Or — semi-automatic feature sweep with a delay between sends:
+swift tools/hid-probe/hid-probe.swift --sweep-feature 0x30 0x3f --delay 2.5
 ```
 
-**OSD sequence to confirm each candidate:**
+**OSD sequence for the PBP hunt:**
 
-1. Run `hid-probe` (interactive or sweep).
-2. Choose a known-good opcode first (option 3 = DisplayPort, option 4 = Type-C) to
-   confirm sends are reaching the monitor — the input should switch.
-3. Work through `?` candidates (opcodes 0x34 onward).  For each:
-   - The tool sends the payload and prints `OK`.
-   - Watch the monitor OSD / picture for ~2 seconds.
-   - Note what changed: input switch? PBP on/off? KVM switched? Nothing?
-   - Press Enter to continue.
-4. When a candidate produces the expected PBP or KVM reaction, record the opcode and
-   the full payload hex shown by the tool, then paste it into PROTOCOL.md.
+1. On the monitor OSD, set **PBP / PIP to OFF** — this is your baseline.  Connect two
+   sources so a split picture is visible when PBP turns on.
+2. Run `hid-probe` and choose menu option **`f`** (PBP discovery).  Accept the default
+   sweep range `0x30`–`0x3f` and value `1`.
+3. The tool sends one **feature pair** candidate at a time (value fixed at `1`), skipping
+   the known Input and KVM features.  After each send:
+   - Picture splits / second source appears → **PBP found.**  Answer `y`.
+   - Nothing → press **Enter** for the next candidate (`q` to stop).
+4. On `y`, the tool prints the PBP-On payload, then sends value `0` to capture PBP-Off,
+   and prints both ready to paste into PROTOCOL.md.
 
 ### Tool reference
 
@@ -210,9 +240,9 @@ swift tools/hid-probe/hid-probe.swift --sweep 0x34 0x50
 |:-----|:--------|:--------|
 | `hid-info` | `swift tools/hid-info/hid-info.swift` | Enumerate HID interfaces, verify connectivity, confirm passive-capture yields nothing |
 | `hid-capture` | `swift tools/hid-capture/hid-capture.swift` | Listen for input reports — expected to capture nothing; run once to verify |
-| `hid-probe` | `swift tools/hid-probe/hid-probe.swift` | **Primary RE tool.** Send opcode candidates one at a time, observe monitor |
+| `hid-probe` | `swift tools/hid-probe/hid-probe.swift` | **Primary RE tool.** Sweep feature-code candidates, observe monitor |
 
-See [`../tools/README.md`](../tools/README.md) for full usage, examples, and sweep mode.
+See [`../tools/README.md`](../tools/README.md) for full usage, the grammar, and sweep modes.
 
 ### When Method A (Wireshark) IS the right choice
 
@@ -221,5 +251,5 @@ Use Wireshark + USBPcap on Windows if:
 - You want to capture the exact bytes MSI's own software sends for PBP/KVM (highest
   confidence — you're reading the official payload, not probing for it).
 
-In that case, follow the Wireshark guide above (Method A).  The opcode-probe approach
+In that case, follow the Wireshark guide above (Method A).  The feature-probe approach
 and Wireshark are complementary — either route eventually gives you the same bytes.

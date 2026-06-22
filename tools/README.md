@@ -10,7 +10,37 @@ installation, no Xcode project, no dependencies beyond macOS itself.
 
 > **Short version:** The monitor does not send HID traffic back to the host when you
 > press OSD buttons.  The practical way to find PBP/KVM payloads is to **send candidate
-> opcodes one at a time and watch the monitor react.**  That is what `hid-probe` does.
+> commands one at a time and watch the monitor react.**  That is what `hid-probe` does.
+
+---
+
+## The command grammar (read this first)
+
+Thanks to the [kdar/msi-monitor-ctrl](https://github.com/kdar/msi-monitor-ctrl) reference
+(`src/device.rs`) we now know the full command shape.  Every command is a 53-byte ASCII
+report:
+
+```
+Index  0    1    2    3    4    5       6       7    8    9    10          11    12..
+Byte   01   35   RW   30   30   FEAT_HI FEAT_LO 30   30   30   (30+value)  0d    00 (padding)
+            '5'                 └── feature ──┘                 value           '\r'
+```
+
+- **RW** (index 2): `0x62` = write, `0x38` = read.
+- **FEATURE** (indices 5,6): a **2-byte** selector — this picks *what* you are changing.
+- **VALUE** (index 10): `0x30 + position`, picks *which option* within the feature.
+
+**Known feature codes:**
+
+| Feature | FEAT_HI, FEAT_LO | Values |
+|:--------|:-----------------|:-------|
+| Input   | `0x35, 0x30` (`'5','0'`) | `0`=HDMI 1, `1`=HDMI 2, `2`=DP, `3`=Type-C |
+| KVM     | `0x38, 0x3e` (`'8','>'`) | selects KVM source |
+| **PBP** | **UNKNOWN** | **what we hunt for below** |
+
+> **Key insight:** PBP is almost certainly *another 2-byte feature code* at indices 5,6 —
+> **not** a different value byte.  So to find PBP we sweep the **feature pair**, holding
+> the value byte fixed at `1` ("on").
 
 ---
 
@@ -44,75 +74,83 @@ If you see "Device NOT found", check the USB upstream cable.
 
 ---
 
-## Step 2 — Probe for PBP / KVM opcodes (interactive)
+## Step 2 — Confirm a known feature works (baseline)
+
+Before hunting for PBP, prove that commands are reaching the monitor.  Send a known
+command and watch the monitor react:
+
+```bash
+# Input → Type-C — the monitor should switch its input source
+swift tools/hid-probe/hid-probe.swift --feature 0x35 0x30 --value 3
+
+# KVM — the known KVM feature
+swift tools/hid-probe/hid-probe.swift --feature 0x38 0x3e --value 1
+```
+
+If the input switches, sends are working and you are ready to hunt for PBP.
+
+---
+
+## Step 3 — Hunt for PBP (the guided feature sweep)
 
 ```bash
 swift tools/hid-probe/hid-probe.swift
 ```
 
-You will see a numbered menu:
+You will see a menu.  Choose **`f`** — "PBP discovery — guided feature sweep".
 
+The tool will walk you through it:
+
+1. **First, on the monitor's OSD, turn PBP / PIP OFF.**  This is your baseline so you can
+   see it turn on.  Make sure two sources are connected so a split picture is visible.
+2. Accept the default sweep range (`0x30`–`0x3f`) and value (`1` = "on").
+3. The tool sends one candidate feature pair at a time (the value byte fixed at `1`).
+   The known Input and KVM features are skipped automatically so a real input/KVM switch
+   is not mistaken for PBP.
+4. After each send, **watch the screen for ~2 seconds**:
+   - Picture splits / a second source appears → **PBP just turned on.**  Answer `y`.
+   - Nothing → press **Enter** for the next candidate.
+   - Want to stop → type `q`.
+5. When you answer `y`, the tool prints the PBP-On payload, then sends value `0` to find
+   the PBP-Off payload, and prints both ready to paste into PROTOCOL.md.
+
+### Faster: semi-automatic feature sweep
+
+To send the whole range automatically with a delay between each (watch the screen and
+note which feature pair causes the change):
+
+```bash
+swift tools/hid-probe/hid-probe.swift --sweep-feature 0x30 0x3f --delay 2.5
 ```
-  1) 0x30  Input → HDMI 1     (known-good)
-  2) 0x31  Input → HDMI 2     (known-good)
-  3) 0x32  Input → DisplayPort (known-good)
-  4) 0x33  Input → Type-C     (known-good)
-  5) 0x34  ? candidate — observe monitor
-  6) 0x35  ? candidate — observe monitor
-  ...
- c) Enter a custom opcode
- q) Quit
-```
 
-**Start with opcodes 1–4 as a baseline** — they are known-good and confirm that sends
-are reaching the monitor.  The monitor should switch its input when you choose option 3
-(DisplayPort) or 4 (Type-C).
-
-Then work through the `?` candidates (options 5 onwards).  For each one:
-1. Choose the number and press Enter.
-2. The tool sends the payload and prints `OK`.
-3. **Watch the monitor's OSD or picture** for about 2 seconds.
-4. Note what happened (input switch? PBP activated? nothing?).
-5. Press Enter to continue to the next candidate.
+Then re-run the feature pair that reacted in interactive mode to capture both on/off values.
 
 ---
 
-## Step 3 — Record what you find
+## Step 4 — Record what you find
 
-When a candidate causes PBP to toggle or KVM to switch, note the opcode byte shown in
-the output:
+When the guided flow finds PBP it prints exactly what to record, e.g.:
 
 ```
-Opcode: 0x36  (ASCII '6')
-Payload (53 bytes):
-  01 35 62 30 30 35 30 30 30 30 36 0d [..zeros..]
+RECORD THESE IN docs/PROTOCOL.md:
+PBP On  = 01 35 62 30 30 3a 31 30 30 30 31 0d 00 00 ...
+PBP Off = 01 35 62 30 30 3a 31 30 30 30 30 0d 00 00 ...
 ```
 
+(The `3a 31` above is an illustrative feature pair, not a confirmed value.)
 Paste the full payload hex into [`docs/PROTOCOL.md`](../docs/PROTOCOL.md) under the
-relevant action.  The macOS and Windows apps will be updated to use it.
+relevant action.  The macOS and Windows apps will then be wired to use it.
 
 ---
 
-## Sweep mode (optional — faster search)
-
-To walk through a range of opcodes without re-invoking the tool each time:
+## Single command (non-interactive, for scripting)
 
 ```bash
-swift tools/hid-probe/hid-probe.swift --sweep 0x34 0x50
+swift tools/hid-probe/hid-probe.swift --feature <hi> <lo> --value <n>
 ```
 
-The tool sends each opcode, pauses, and waits for Enter before moving on.
-Type `q` + Enter at any pause to stop.
-
----
-
-## Single opcode (non-interactive, for scripting)
-
-```bash
-swift tools/hid-probe/hid-probe.swift --opcode 0x33
-```
-
-Sends one opcode and exits.  Useful for scripting or confirming a specific payload.
+Sends one command and exits.  Useful for re-confirming a discovered payload, e.g.
+`--feature 0x35 0x30 --value 2` for Input → DisplayPort.
 
 ---
 
@@ -144,7 +182,7 @@ An `IOHIDManager` input-report callback fires only when the device sends data **
 host.  For this monitor, that never happens during normal use.  Therefore `hid-capture`
 captures nothing, and Wireshark on macOS is equally useless for this use-case.
 
-**The opcode probe (`hid-probe`) is the correct method.**
+**The feature probe (`hid-probe`) is the correct method.**
 
 ---
 
@@ -154,15 +192,15 @@ captures nothing, and Wireshark on macOS is equally useless for this use-case.
 |:-----|:-----|:--------|
 | `hid-info` | `tools/hid-info/hid-info.swift` | Enumerate device, print HID interfaces, confirm connectivity |
 | `hid-capture` | `tools/hid-capture/hid-capture.swift` | Listen for input reports (expected: none) |
-| `hid-probe` | `tools/hid-probe/hid-probe.swift` | **Primary RE tool** — send opcode candidates, observe monitor |
+| `hid-probe` | `tools/hid-probe/hid-probe.swift` | **Primary RE tool** — send feature-code candidates, observe monitor |
 
 ---
 
 ## Safety note
 
-Sending an unrecognised opcode to the monitor is low-risk.  The monitor firmware
+Sending an unrecognised command to the monitor is low-risk.  The monitor firmware
 ignores commands it does not recognise — the realistic outcome is "nothing happens".
-`hid-probe` only sends payloads that match the known 53-byte structure; it does not
-send arbitrary data.
+`hid-probe` only sends payloads that match the known 53-byte grammar (correct prefix,
+feature pair, value byte and terminator); it does not send arbitrary data.
 
 © 2026 LogicalSapien — MIT licence

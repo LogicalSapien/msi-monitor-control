@@ -151,8 +151,6 @@ for (index, device) in deviceArray.enumerated() {
     }
 
     // Register input-report callback to see if the device ever sends data
-    let callbackInfo = Unmanaged.passRetained(NSMutableDictionary())
-
     IOHIDDeviceRegisterInputReportCallback(
         device,
         UnsafeMutablePointer<UInt8>.allocate(capacity: 64),
