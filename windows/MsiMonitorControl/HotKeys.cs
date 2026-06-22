@@ -6,6 +6,10 @@ namespace MsiMonitorControl;
 /// <summary>
 /// Registers and manages Win32 global hotkeys via <c>RegisterHotKey</c>.
 ///
+/// Owns its own message-only window (created via <see cref="NativeWindow.CreateHandle"/>)
+/// so it has a real HWND to receive <c>WM_HOTKEY</c> messages — <see cref="NotifyIcon"/>
+/// has no window handle of its own, so it cannot be used for this.
+///
 /// Default hotkeys (Ctrl+Alt+*):
 ///   Ctrl+Alt+P = PBP On
 ///   Ctrl+Alt+O = PBP Off
@@ -50,16 +54,22 @@ internal sealed class HotKeys : NativeWindow, IDisposable
     };
 
     /// <summary>
-    /// Initialises and registers all hotkeys.
+    /// Initialises a message-only window and registers all hotkeys against it.
     /// </summary>
-    /// <param name="hwnd">The HWND to associate hotkey messages with (tray icon handle).</param>
     /// <param name="onCommand">Callback invoked on the UI thread when a hotkey fires.</param>
-    public HotKeys(IntPtr hwnd, Action<CommandKind> onCommand)
+    public HotKeys(Action<CommandKind> onCommand)
     {
         _onCommand = onCommand;
 
-        // Attach to the provided window handle so WM_HOTKEY messages are routed here.
-        AssignHandle(hwnd);
+        // Create a message-only window (HWND_MESSAGE parent) to receive WM_HOTKEY.
+        // It is never shown and has no UI; it exists purely to own the hotkeys.
+        var cp = new CreateParams
+        {
+            Caption = "MsiMonitorControlHotKeys",
+            // -3 = HWND_MESSAGE: a message-only window, invisible and non-interactive.
+            Parent = new IntPtr(-3),
+        };
+        CreateHandle(cp);
 
         foreach (var (id, vk, _) in Bindings)
             RegisterHotKey(Handle, id, ModCtrl | ModAlt, vk);
@@ -87,9 +97,12 @@ internal sealed class HotKeys : NativeWindow, IDisposable
         if (_disposed) return;
         _disposed = true;
 
-        foreach (var (id, _, _) in Bindings)
-            UnregisterHotKey(Handle, id);
+        if (Handle != IntPtr.Zero)
+        {
+            foreach (var (id, _, _) in Bindings)
+                UnregisterHotKey(Handle, id);
+        }
 
-        ReleaseHandle();
+        DestroyHandle();
     }
 }

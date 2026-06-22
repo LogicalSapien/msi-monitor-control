@@ -29,7 +29,7 @@ internal sealed class TrayApp : ApplicationContext
 
         _trayIcon.ContextMenuStrip = BuildMenu();
 
-        _hotKeys = new HotKeys(_trayIcon.Handle, OnCommand);
+        _hotKeys = new HotKeys(OnCommand);
 
         // Refresh device list on tray icon double-click.
         _trayIcon.DoubleClick += (_, _) =>
