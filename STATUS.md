@@ -55,11 +55,35 @@ All Track C and D-windows tasks are done:
 - Global hotkeys: Ctrl+Alt+{P,O,U,K,T,D} via Win32 `RegisterHotKey`.
 - CI: `windows-latest` job uses `dotnet build --configuration Release` + `dotnet test`.
 
+## Tooling — msi-tools (completed 2026-06-22)
+
+Three single-file Swift scripts in `tools/` — no Xcode, no dependencies beyond macOS Swift:
+
+| Tool | Path | Purpose |
+|:-----|:-----|:--------|
+| `hid-info` | `tools/hid-info/hid-info.swift` | Enumerate HID interfaces; confirm connectivity; verify passive capture is not viable |
+| `hid-capture` | `tools/hid-capture/hid-capture.swift` | Input-report listener — expected to capture nothing; run once to verify |
+| `hid-probe` | `tools/hid-probe/hid-probe.swift` | **Primary RE tool** — interactive opcode prober; send candidates, observe monitor |
+
+**Capture method verdict:**
+- Passive `IOHIDManager` listening captures NOTHING for OSD-triggered actions. The MD342CQP
+  protocol is output-only (host → monitor). OSD button presses are internal to the firmware.
+- **Opcode probing via `hid-probe` is the recommended path.** The protocol is ASCII with
+  one byte varying; ~20 candidates cover the likely PBP/KVM opcode range.
+- Wireshark + USBPcap on Windows remains the alternative if MSI Productivity Intelligence is available.
+
+**Exact command + OSD sequence:**
+```bash
+swift tools/hid-info/hid-info.swift          # confirm device is visible
+swift tools/hid-probe/hid-probe.swift        # interactive probe
+# → choose option 3 or 4 (known-good baseline), then try ? candidates
+```
+See `tools/README.md` for full usage, sweep mode, and interpretation guide.
+
 ## Blockers
 
-- **PBP On/Off and KVM USB-C/Upstream payloads** — UNKNOWN. Require USB HID capture
-  on hardware (Wireshark + USBPcap while triggering via MSI Productivity Intelligence).
-  See `docs/PROTOCOL.md §Reverse-engineering notes` for the runbook.
+- **PBP On/Off and KVM USB-C/Upstream payloads** — UNKNOWN. Use `hid-probe` on hardware
+  to discover them (see `tools/README.md`), then fill them into PROTOCOL.md.
 - **CI green confirmation** — needs the push to trigger the GitHub Actions `windows-latest`
   job. The human should verify it passes (no real monitor attached in CI, so device-not-found
   tests are the expected pass state).

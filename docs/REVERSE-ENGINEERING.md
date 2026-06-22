@@ -154,3 +154,72 @@ toggles PBP / switches KVM.
   understand. The realistic failure mode is "nothing happens", not damage.
 - Still: we confirm each captured payload reproduces the OSD behaviour before committing it as
   final. No invented bytes ship to `main`.
+
+---
+
+## Tooling (preferred path — use these first)
+
+The `tools/` directory contains three single-file Swift scripts that run directly on
+macOS with no dependencies beyond the system Swift toolchain (from Xcode Command Line
+Tools).  No Wireshark, no extra software, no Windows required.
+
+### Honest assessment — does passive HID capture work?
+
+**No, not for OSD-triggered actions.** The MD342CQP protocol is purely output-report:
+the host writes 53-byte ASCII commands to the monitor; the monitor acts silently with
+no HID report sent back.  Pressing OSD buttons on the monitor triggers internal firmware
+state changes that are invisible to the host over HID.  An `IOHIDManager` input-report
+listener (Method B in the Wireshark-alternative approaches) captures nothing.
+
+The only scenario where Wireshark on macOS would help is if MSI's own desktop software
+(Windows-only) were running on the same machine and issuing output reports — but that
+software does not exist for macOS.
+
+### Recommended method: opcode probing via `hid-probe`
+
+Since the protocol is ASCII text with a **single byte** varying per action, a small
+candidate sweep discovers PBP and KVM payloads without any bus capture at all:
+
+```bash
+# Step 1 — confirm the device is visible (run from repo root)
+swift tools/hid-info/hid-info.swift
+
+# Step 2 — interactive probe: send one candidate at a time, watch the monitor
+swift tools/hid-probe/hid-probe.swift
+
+# Or — sweep a range without re-invoking:
+swift tools/hid-probe/hid-probe.swift --sweep 0x34 0x50
+```
+
+**OSD sequence to confirm each candidate:**
+
+1. Run `hid-probe` (interactive or sweep).
+2. Choose a known-good opcode first (option 3 = DisplayPort, option 4 = Type-C) to
+   confirm sends are reaching the monitor — the input should switch.
+3. Work through `?` candidates (opcodes 0x34 onward).  For each:
+   - The tool sends the payload and prints `OK`.
+   - Watch the monitor OSD / picture for ~2 seconds.
+   - Note what changed: input switch? PBP on/off? KVM switched? Nothing?
+   - Press Enter to continue.
+4. When a candidate produces the expected PBP or KVM reaction, record the opcode and
+   the full payload hex shown by the tool, then paste it into PROTOCOL.md.
+
+### Tool reference
+
+| Tool | Command | Purpose |
+|:-----|:--------|:--------|
+| `hid-info` | `swift tools/hid-info/hid-info.swift` | Enumerate HID interfaces, verify connectivity, confirm passive-capture yields nothing |
+| `hid-capture` | `swift tools/hid-capture/hid-capture.swift` | Listen for input reports — expected to capture nothing; run once to verify |
+| `hid-probe` | `swift tools/hid-probe/hid-probe.swift` | **Primary RE tool.** Send opcode candidates one at a time, observe monitor |
+
+See [`../tools/README.md`](../tools/README.md) for full usage, examples, and sweep mode.
+
+### When Method A (Wireshark) IS the right choice
+
+Use Wireshark + USBPcap on Windows if:
+- You have a Windows machine with MSI Productivity Intelligence installed.
+- You want to capture the exact bytes MSI's own software sends for PBP/KVM (highest
+  confidence — you're reading the official payload, not probing for it).
+
+In that case, follow the Wireshark guide above (Method A).  The opcode-probe approach
+and Wireshark are complementary — either route eventually gives you the same bytes.
