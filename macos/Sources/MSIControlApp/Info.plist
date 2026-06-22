@@ -15,6 +15,14 @@
     <string>MSIControlApp</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
+    <!-- Icon: build-app.sh copies assets/icon.icns into Contents/Resources/icon.icns.
+         CFBundleIconFile is the file name (extension optional); CFBundleIconName
+         lets a future asset catalogue resolve the same icon. Until the asset is
+         committed the app falls back to the default icon. -->
+    <key>CFBundleIconFile</key>
+    <string>icon.icns</string>
+    <key>CFBundleIconName</key>
+    <string>icon</string>
     <key>CFBundleVersion</key>
     <string>1</string>
     <key>CFBundleShortVersionString</key>
