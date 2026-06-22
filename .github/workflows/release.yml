@@ -1,0 +1,154 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag name to publish release for (e.g. v0.1.0)'
+        required: false
+
+jobs:
+  macos:
+    name: macOS — build & package
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build .app bundle
+        working-directory: macos
+        run: bash build-app.sh
+
+      - name: Create .zip (ditto, preserves .app structure)
+        working-directory: macos
+        run: |
+          ditto -c -k --keepParent \
+            build/MSIMonitorControl.app \
+            build/MSIMonitorControl-macOS.zip
+
+      - name: Create .dmg
+        working-directory: macos
+        run: |
+          hdiutil create \
+            -volname "MSI Monitor Control" \
+            -srcfolder build/MSIMonitorControl.app \
+            -ov \
+            -format UDZO \
+            build/MSIMonitorControl-macOS.dmg
+
+      - name: Upload macOS artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-artifacts
+          path: |
+            macos/build/MSIMonitorControl-macOS.zip
+            macos/build/MSIMonitorControl-macOS.dmg
+
+  windows:
+    name: Windows — build & package
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Publish self-contained single-file .exe
+        working-directory: windows
+        run: |
+          dotnet publish MsiMonitorControl/MsiMonitorControl.csproj `
+            -c Release `
+            -r win-x64 `
+            --self-contained true `
+            -p:PublishSingleFile=true `
+            -p:PublishReadyToRun=true `
+            -o publish
+
+      - name: Zip the .exe
+        working-directory: windows
+        shell: pwsh
+        run: |
+          Compress-Archive `
+            -Path publish/MsiMonitorControl.exe `
+            -DestinationPath publish/MsiMonitorControl-Windows-x64.zip
+
+      - name: Upload Windows artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-artifacts
+          path: windows/publish/MsiMonitorControl-Windows-x64.zip
+
+  publish:
+    name: Publish GitHub Release
+    needs: [macos, windows]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download macOS artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: macos-artifacts
+          path: artifacts/macos
+
+      - name: Download Windows artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: windows-artifacts
+          path: artifacts/windows
+
+      - name: Determine release tag
+        id: tag
+        env:
+          # Passed via env var to avoid shell injection from workflow_dispatch input.
+          DISPATCH_TAG: ${{ github.event.inputs.tag }}
+        run: |
+          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            echo "tag=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=${DISPATCH_TAG}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create GitHub Release and upload assets
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.tag }}
+          name: ${{ steps.tag.outputs.tag }}
+          draft: false
+          prerelease: false
+          body: |
+            ## MSI Monitor Control ${{ steps.tag.outputs.tag }}
+
+            Controls MSI monitors (MD342CQP tested) via raw USB HID.
+            Supports PBP toggle, KVM switch, and input switching with global hotkeys.
+
+            > ⚠️ **These apps are unsigned.** See the [Installation](#installation) section in the README for Gatekeeper / SmartScreen bypass instructions.
+
+            ### Download
+
+            | Platform | File | Notes |
+            |:---------|:-----|:------|
+            | macOS | `MSIMonitorControl-macOS.dmg` | Drag .app to Applications |
+            | macOS | `MSIMonitorControl-macOS.zip` | Alternative to the .dmg |
+            | Windows | `MsiMonitorControl-Windows-x64.zip` | Self-contained, no .NET install required |
+
+            ### First-launch (unsigned apps)
+
+            **macOS:** Right-click the `.app` → **Open** → confirm. Or strip quarantine:
+            ```
+            xattr -dr com.apple.quarantine /Applications/MSIMonitorControl.app
+            ```
+
+            **Windows:** Windows SmartScreen may block the `.exe`. Click **More info → Run anyway**.
+
+            ---
+
+            Full protocol documentation: [`docs/PROTOCOL.md`](https://github.com/${{ github.repository }}/blob/main/docs/PROTOCOL.md)
+          files: |
+            artifacts/macos/MSIMonitorControl-macOS.zip
+            artifacts/macos/MSIMonitorControl-macOS.dmg
+            artifacts/windows/MsiMonitorControl-Windows-x64.zip

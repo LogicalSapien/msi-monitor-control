@@ -85,6 +85,39 @@ dotnet run --project MsiMonitorControl
 
 ---
 
+## Releases / Installation
+
+Pre-built binaries are published on the [GitHub Releases](../../releases) page for
+every version tag. No build tools required — just download and run.
+
+### macOS
+
+1. Download `MSIMonitorControl-macOS.dmg` (or the `.zip`).
+2. Open the `.dmg` and drag `MSIMonitorControl.app` to your Applications folder
+   (or anywhere you like).
+3. **First launch — Gatekeeper:** the app is **unsigned** (no Apple Developer certificate).
+   macOS will block it by default. To allow it, use either method:
+   - **Right-click** the `.app` → **Open** → click **Open** in the dialog.
+     You only need to do this once; subsequent launches work normally.
+   - Or strip the quarantine attribute from Terminal:
+     ```
+     xattr -dr com.apple.quarantine /Applications/MSIMonitorControl.app
+     ```
+
+### Windows
+
+1. Download `MsiMonitorControl-Windows-x64.zip` and extract it.
+2. Run `MsiMonitorControl.exe` — it is **self-contained** (no .NET runtime install
+   required).
+3. **First launch — SmartScreen:** the executable is **unsigned**. Windows may show
+   "Windows protected your PC". Click **More info → Run anyway**.
+
+> These apps are unsigned because obtaining code-signing certificates is a Phase 2
+> goal. The source code is public and MIT-licensed — you can build from source
+> (see the macOS / Windows sections above) if you prefer not to run unsigned binaries.
+
+---
+
 ## Protocol
 
 HID payloads are documented in [`docs/PROTOCOL.md`](docs/PROTOCOL.md). Both
