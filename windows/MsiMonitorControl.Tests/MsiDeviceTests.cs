@@ -18,20 +18,44 @@ public class MsiDeviceTests
     }
 
     [Theory]
-    [InlineData(CommandKind.PbpOn)]
-    [InlineData(CommandKind.PbpOff)]
-    [InlineData(CommandKind.KvmUsbC)]
-    [InlineData(CommandKind.KvmUpstream)]
+    [InlineData(CommandKind.InputHdmi1)]
+    [InlineData(CommandKind.InputHdmi2)]
     [InlineData(CommandKind.InputTypeC)]
     [InlineData(CommandKind.InputDp)]
+    [InlineData(CommandKind.KvmUsbC)]
+    [InlineData(CommandKind.KvmUpstream)]
+    [InlineData(CommandKind.KvmAuto)]
+    [InlineData(CommandKind.PbpOff)]
+    [InlineData(CommandKind.PbpPip)]
+    [InlineData(CommandKind.PbpOn)]
     public void Send_ReturnsDeviceNotFound_WhenNoMonitorAttached(CommandKind command)
     {
         var device = new MsiDevice();
-        // In CI (windows-latest) no MD342CQP is attached, so no device matches VID/PID.
-        // Send short-circuits on the null device before PayloadFor is reached, so commands
-        // with UNKNOWN payloads (PBP On/Off) still return DeviceNotFound here — the throwing
-        // path itself is covered by CommandTests.PayloadFor_ThrowsNotImplemented_ForUnknownPayloads.
+        // In CI (windows-latest) no MD342CQP is attached, so no device matches VID/PID. Send
+        // short-circuits on the null device → DeviceNotFound. All v0.2.2 monitor commands have
+        // real payloads now, so none throw on the way (the payloads themselves are pinned by
+        // CommandTests).
         var result = device.Send(command);
+        Assert.Equal(MsiResult.DeviceNotFound, result);
+    }
+
+    [Fact]
+    public void Send_ShowLauncher_ReturnsNotAMonitorCommand_NeverThrows()
+    {
+        // Defence-in-depth at the HID boundary: ShowLauncher is app-only (no HID payload). Send
+        // must return NotAMonitorCommand WITHOUT throwing — and BEFORE any device/connectivity or
+        // PayloadFor (which would throw for ShowLauncher). Holds regardless of monitor presence.
+        var device = new MsiDevice();
+        var result = device.Send(CommandKind.ShowLauncher);
+        Assert.Equal(MsiResult.NotAMonitorCommand, result);
+    }
+
+    [Fact]
+    public void SetPbpSource_ReturnsDeviceNotFound_WhenNoMonitorAttached()
+    {
+        // The parameterised PBP source-select must also short-circuit safely with no monitor.
+        var device = new MsiDevice();
+        var result = device.SetPbpSource(Command.PbpWindow.Sub, Command.PbpInput.Hdmi1);
         Assert.Equal(MsiResult.DeviceNotFound, result);
     }
 }

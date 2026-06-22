@@ -17,6 +17,7 @@ namespace MsiMonitorControl;
 /// copy back to the caller, which persists it, live-re-registers the hotkeys, and reconciles
 /// launch-at-login. Cancel discards. v0.2.2: a "Picture-by-Picture" section drives PBP/PIP mode
 /// + per-window source-select (live device sends, not config edits; main-window unverified).
+/// v0.2.3: adds an "Edge-Switch KVM" section with opt-in toggle.
 /// All actions are available (hardware-confirmed payloads).
 /// </summary>
 internal sealed class SettingsForm : Form
@@ -24,6 +25,7 @@ internal sealed class SettingsForm : Form
     private readonly HotkeyConfig _config; // working copy
     private readonly ComboBox _presetBox;
     private readonly CheckBox _launchAtLogin;
+    private readonly CheckBox _edgeSwitchToggle;  // v0.2.3
     private readonly FlowLayoutPanel _rows;
     private readonly Label _advisory;
 
@@ -44,7 +46,8 @@ internal sealed class SettingsForm : Form
 
     public SettingsForm(HotkeyConfig config,
                         Action<CommandKind> sendCommand,
-                        Action<Command.PbpWindow, Command.PbpInput> setPbpSource)
+                        Action<Command.PbpWindow, Command.PbpInput> setPbpSource,
+                        bool currentEdgeSwitchEnabled = false)
     {
         // Deep-copy so Cancel truly discards. A round-trip through the model is the simplest
         // faithful clone and reuses the same (sanitising) load path.
@@ -58,21 +61,23 @@ internal sealed class SettingsForm : Form
         MinimizeBox     = false;
         MaximizeBox     = false;
         ShowInTaskbar   = true;
-        ClientSize      = new Size(460, 520);
+        ClientSize      = new Size(480, 620);
 
         var layout = new TableLayoutPanel
         {
             Dock        = DockStyle.Fill,
             ColumnCount = 1,
-            RowCount    = 6,
+            RowCount    = 8,
             Padding     = new Padding(12),
         };
-        layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));   // preset
-        layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100)); // hotkey rows
-        layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));   // advisory
-        layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));   // PBP/PIP section
-        layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));   // launch
-        layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));   // buttons
+        layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));     // 0: preset
+        layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100)); // 1: hotkey rows
+        layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));     // 2: advisory
+        layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));     // 3: PBP/PIP section
+        layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));     // 4: edge-switch KVM section (v0.2.3)
+        layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));     // 5: launch-at-login
+        layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));     // 6: help button row
+        layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));     // 7: save/cancel buttons
         Controls.Add(layout);
 
         // -- Preset row ------------------------------------------------------
@@ -97,24 +102,47 @@ internal sealed class SettingsForm : Form
         RebuildRows();
 
         // -- Advisory --------------------------------------------------------
-        _advisory = new Label { AutoSize = true, ForeColor = Color.DarkGoldenrod, MaximumSize = new Size(430, 0) };
+        _advisory = new Label { AutoSize = true, ForeColor = Color.DarkGoldenrod, MaximumSize = new Size(450, 0) };
         layout.Controls.Add(_advisory, 0, 2);
 
         // -- Picture-by-Picture section (v0.2.2) -----------------------------
         layout.Controls.Add(BuildPbpSection(), 0, 3);
 
+        // -- Edge-Switch KVM section (v0.2.3) --------------------------------
+        _edgeSwitchToggle = new CheckBox
+        {
+            Checked  = currentEdgeSwitchEnabled,
+            AutoSize = true,
+        };
+        layout.Controls.Add(BuildEdgeSwitchSection(_edgeSwitchToggle), 0, 4);
+
         // -- Launch-at-login -------------------------------------------------
         _launchAtLogin = new CheckBox { Text = "Launch at login", AutoSize = true, Checked = _config.LaunchAtLogin };
-        layout.Controls.Add(_launchAtLogin, 0, 4);
+        layout.Controls.Add(_launchAtLogin, 0, 5);
+
+        // -- Help button row -------------------------------------------------
+        var helpPanel = new FlowLayoutPanel { AutoSize = true, FlowDirection = FlowDirection.LeftToRight };
+        var helpBtn = new Button { Text = "Help…", AutoSize = true };
+        helpBtn.Click += (_, _) =>
+        {
+            using var hf = new HelpForm(_config);
+            hf.ShowDialog(this);
+        };
+        helpPanel.Controls.Add(helpBtn);
+        layout.Controls.Add(helpPanel, 0, 6);
 
         // -- Buttons ---------------------------------------------------------
         var buttons = new FlowLayoutPanel { AutoSize = true, FlowDirection = FlowDirection.RightToLeft, Dock = DockStyle.Fill };
         var save   = new Button { Text = "Save",   DialogResult = DialogResult.OK,     AutoSize = true };
         var cancel = new Button { Text = "Cancel", DialogResult = DialogResult.Cancel, AutoSize = true };
-        save.Click += (_, _) => { _config.LaunchAtLogin = _launchAtLogin.Checked; };
+        save.Click += (_, _) =>
+        {
+            _config.LaunchAtLogin     = _launchAtLogin.Checked;
+            _config.EdgeSwitchEnabled = _edgeSwitchToggle.Checked;  // v0.2.3
+        };
         buttons.Controls.Add(save);
         buttons.Controls.Add(cancel);
-        layout.Controls.Add(buttons, 0, 5);
+        layout.Controls.Add(buttons, 0, 7);
 
         AcceptButton = save;
         CancelButton = cancel;
@@ -186,6 +214,59 @@ internal sealed class SettingsForm : Form
         grid.Controls.Add(new Label { Text = "Main-window source (unverified):", AutoSize = true, Anchor = AnchorStyles.Left, Margin = new Padding(0, 6, 8, 0) }, 0, 2);
         grid.Controls.Add(BuildSourceCombo(Command.PbpWindow.Main), 1, 2);
 
+        return group;
+    }
+
+    /// <summary>
+    /// The "Edge-Switch KVM" section (v0.2.3): opt-in toggle + short explainer text.
+    /// Checkbox state is read back on Save (<c>_edgeSwitchToggle.Checked</c>).
+    /// No permission complexity on Windows — <c>WH_MOUSE_LL</c> requires no special privilege (§1.2).
+    /// </summary>
+    private static Control BuildEdgeSwitchSection(CheckBox toggle)
+    {
+        var group = new GroupBox
+        {
+            Text     = "Edge-Switch KVM",
+            AutoSize = true,
+            Dock     = DockStyle.Fill,
+            Padding  = new Padding(8),
+        };
+
+        var inner = new FlowLayoutPanel
+        {
+            FlowDirection = FlowDirection.TopDown,
+            WrapContents  = false,
+            AutoSize      = true,
+            Dock          = DockStyle.Fill,
+        };
+
+        toggle.Text = "Auto-switch KVM at PBP divider";
+        toggle.Margin = new Padding(0, 0, 0, 6);
+        inner.Controls.Add(toggle);
+
+        var desc = new Label
+        {
+            Text = "When PBP mode is active, moving the cursor across the centre divider\r\n"
+                 + "automatically switches the KVM to the source in that window.\r\n"
+                 + "Only applies to Type-C and DisplayPort sources — HDMI inputs are not\r\n"
+                 + "auto-switched (ambiguous port mapping).",
+            AutoSize     = true,
+            ForeColor    = Color.Gray,
+            Margin       = new Padding(0, 0, 0, 6),
+            MaximumSize  = new Size(440, 0),
+        };
+        inner.Controls.Add(desc);
+
+        var privacy = new Label
+        {
+            Text = "⚠ Privacy: cursor position is read locally only — never stored or transmitted.",
+            AutoSize    = true,
+            ForeColor   = Color.DarkGoldenrod,
+            MaximumSize = new Size(440, 0),
+        };
+        inner.Controls.Add(privacy);
+
+        group.Controls.Add(inner);
         return group;
     }
 

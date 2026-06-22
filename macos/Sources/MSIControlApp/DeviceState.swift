@@ -14,6 +14,17 @@ final class DeviceState: ObservableObject {
     /// monitor itself cannot report state (see PROTOCOL.md § no read-back).
     @Published private(set) var currentByGroup: [Command.Group: Command] = [:]
 
+    /// PBP per-window source selections (promoted from SettingsView @State so the
+    /// EdgeSwitchTracker can read them without touching UI; v0.2.3 design §4.3).
+    /// Updated by SettingsView when the user changes a source dropdown.
+    /// Defaults reflect what the monitor's OSD typically shows on first PBP enable.
+    @Published var pbpMainSource: InputEnum = .hdmi1
+    @Published var pbpSubSource: InputEnum = .hdmi1
+
+    /// Called on the main thread after a PBP-mode command succeeds. Used to notify
+    /// the EdgeSwitchTracker so it can transition between Standby and Active.
+    var onPBPModeChanged: (() -> Void)?
+
     private let device = MSIDevice()
     private var timer: Timer?
 
@@ -44,7 +55,12 @@ final class DeviceState: ObservableObject {
         switch result {
         case .success:
             lastError = nil
-            if let group = command.group { currentByGroup[group] = command }
+            if let group = command.group {
+                currentByGroup[group] = command
+                // Notify the edge-switch tracker if a PBP mode changed successfully,
+                // so it can transition between Standby and Active (v0.2.3 design §3.1).
+                if group == .pbpMode { onPBPModeChanged?() }
+            }
         case .failure(let error):
             apply(error, label: command.label)
         }

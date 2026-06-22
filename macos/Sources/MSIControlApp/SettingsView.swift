@@ -10,15 +10,13 @@ struct SettingsView: View {
 
     @ObservedObject var settings: SettingsStore
     @ObservedObject var deviceState: DeviceState
+    /// Opens the Help window (injected from App.swift scene).
+    var openHelp: (() -> Void)? = nil
 
     /// Which (action, index) is currently capturing a new chord, if any.
     @State private var capturing: CaptureTarget?
     /// Transient advisory shown after an AltGr-flagged rebind.
     @State private var advisory: String?
-    /// Selected PBP per-window source inputs (UI state; the monitor can't report
-    /// these back, so they default to HDMI 1 and apply on change).
-    @State private var subSource: InputEnum = .hdmi1
-    @State private var mainSource: InputEnum = .hdmi1
 
     private struct CaptureTarget: Equatable {
         let actionId: String
@@ -36,6 +34,8 @@ struct SettingsView: View {
             Divider()
             pbpSection
             Divider()
+            edgeSwitchSection
+            Divider()
             launchSection
 
             if let advisory {
@@ -43,6 +43,15 @@ struct SettingsView: View {
                     .font(.caption)
                     .foregroundStyle(.orange)
                     .fixedSize(horizontal: false, vertical: true)
+            }
+
+            if let openHelp {
+                Divider()
+                HStack {
+                    Spacer()
+                    Button("Help…", action: openHelp)
+                        .buttonStyle(.link)
+                }
             }
         }
         .padding(20)
@@ -242,12 +251,20 @@ struct SettingsView: View {
             }
 
             // Sub-window source (feature 0x36 0x31 — hardware-confirmed).
+            // Binding writes back to DeviceState.pbpSubSource so EdgeSwitchTracker
+            // can read the current selection (v0.2.3 design §4.3).
             sourceRow(title: "Right / inset source", window: .sub,
-                      selection: $subSource)
+                      selection: Binding(
+                          get: { deviceState.pbpSubSource },
+                          set: { deviceState.pbpSubSource = $0 }
+                      ))
 
             // Main-window source (feature 0x36 0x32 — ASSUMED, not verified).
             sourceRow(title: "Left / main source", window: .main,
-                      selection: $mainSource,
+                      selection: Binding(
+                          get: { deviceState.pbpMainSource },
+                          set: { deviceState.pbpMainSource = $0 }
+                      ),
                       footnote: "Unverified — the main-window source command isn’t hardware-confirmed yet.")
         }
     }
@@ -289,6 +306,62 @@ struct SettingsView: View {
                     .padding(.leading, labelColumn)
             }
         }
+    }
+
+    // MARK: Edge-Switch KVM (v0.2.3)
+
+    /// The "Edge-Switch KVM" settings section. Layout per design §7.1.
+    private var edgeSwitchSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Edge-Switch KVM").font(.headline)
+
+            Toggle(isOn: Binding(
+                get: { settings.config.edgeSwitchEnabled },
+                set: { settings.setEdgeSwitchEnabled($0) }
+            )) {
+                Text("Auto-switch KVM at PBP divider")
+            }
+
+            Group {
+                Text("When enabled and PBP mode is active, moving the cursor across the centre divider automatically switches the KVM to the source in that window.")
+                Text("Only applies to Type-C and DisplayPort windows. HDMI sources are not auto-switched (ambiguous port mapping).")
+                Text("⚠ Privacy: cursor position is read locally, used only for divider detection, and never stored or transmitted.")
+                    .foregroundStyle(.secondary)
+            }
+            .font(.caption)
+            .fixedSize(horizontal: false, vertical: true)
+
+            // Input Monitoring permission status (always shown so the user understands
+            // the dependency; deep-link button appears only when denied, per §7.1).
+            inputMonitoringStatusRow
+        }
+    }
+
+    @ViewBuilder
+    private var inputMonitoringStatusRow: some View {
+        let status = settings.inputMonitoringStatus
+        HStack(spacing: 8) {
+            Image(systemName: status == .granted ? "checkmark.shield.fill" : "exclamationmark.shield.fill")
+                .foregroundStyle(status == .granted ? Color.green : Color.orange)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Accessibility — Input Monitoring")
+                    .font(.caption).bold()
+                Text(status.statusText)
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Spacer()
+            if status == .denied {
+                Button("Open System Settings…") {
+                    NSWorkspace.shared.open(
+                        URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent")!
+                    )
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+            }
+        }
+        .padding(8)
+        .background(RoundedRectangle(cornerRadius: 6).fill(Color(nsColor: .windowBackgroundColor)))
     }
 
     // MARK: Launch at login

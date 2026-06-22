@@ -69,6 +69,11 @@ struct MSIControlApp: App {
 
     @Environment(\.openWindow) private var openWindow
 
+    private func openHelp() {
+        NSApp.activate(ignoringOtherApps: true)
+        openWindow(id: "help")
+    }
+
     init() {
         let state = DeviceState()
         let opener = LauncherOpener()
@@ -76,7 +81,23 @@ struct MSIControlApp: App {
                                     onShowLauncher: { [opener] in opener.open() })
         _deviceState = StateObject(wrappedValue: state)
         // SettingsStore loads the config and applies hotkeys + launch-at-login.
-        _settings = StateObject(wrappedValue: SettingsStore(hotKeyManager: manager))
+        let store = SettingsStore(hotKeyManager: manager)
+        // Create the edge-switch tracker, passing a KVM-send closure that dispatches
+        // to DeviceState.send on the main thread (the tracker's onKvmSwitch contract,
+        // design §1.1 / M5).
+        store.edgeSwitchTracker = EdgeSwitchTracker(
+            deviceState: state,
+            onKvmSwitch: { [state] command in state.send(command) }
+        )
+        // If the config already had edge-switch enabled (e.g. relaunched after save),
+        // apply it now (permission will be re-probed by setEnabled if needed).
+        if store.config.edgeSwitchEnabled {
+            store.edgeSwitchTracker?.setEnabled(true)
+        }
+        // Wire PBP mode change notifications → tracker Standby/Active transitions.
+        let tracker = store.edgeSwitchTracker
+        state.onPBPModeChanged = { [tracker] in tracker?.notifyPBPModeChanged() }
+        _settings = StateObject(wrappedValue: store)
         hotKeyManager = manager
         launcherOpener = opener
     }
@@ -94,6 +115,10 @@ struct MSIControlApp: App {
                         openLauncher: {
                             NSApp.activate(ignoringOtherApps: true)
                             openWindow(id: "launcher")
+                        },
+                        openHelp: {
+                            NSApp.activate(ignoringOtherApps: true)
+                            openWindow(id: "help")
                         })
                 .onAppear { wireLauncherOpener() }
         } label: {
@@ -109,7 +134,11 @@ struct MSIControlApp: App {
         // Settings window, opened on demand from the menu. Accessory-policy apps
         // have no standard Settings menu, so we use a plain Window we open by id.
         Window("MSI Monitor Control Settings", id: "settings") {
-            SettingsView(settings: settings, deviceState: deviceState)
+            SettingsView(settings: settings, deviceState: deviceState,
+                         openHelp: {
+                             NSApp.activate(ignoringOtherApps: true)
+                             openWindow(id: "help")
+                         })
         }
         .windowResizability(.contentSize)
 
@@ -125,6 +154,12 @@ struct MSIControlApp: App {
         }
         .windowResizability(.contentSize)
         .defaultPosition(.center)
+
+        // In-app Help window (task #35).
+        Window("MSI Monitor Control Help", id: "help") {
+            HelpView(settings: settings)
+        }
+        .windowResizability(.contentSize)
     }
 
     /// Closes the launcher window by title (macOS 13-safe — no `dismissWindow`).

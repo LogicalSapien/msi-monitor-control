@@ -10,6 +10,8 @@ struct MenuBarView: View {
     var openSettings: () -> Void
     /// Opens the quick-launcher palette (wired from the App scene).
     var openLauncher: () -> Void
+    /// Opens the in-app Help window (wired from the App scene).
+    var openHelp: () -> Void
 
     var body: some View {
         // Connection status indicator
@@ -67,6 +69,10 @@ struct MenuBarView: View {
             openSettings()
         }
         .keyboardShortcut(",")
+
+        Button("Help…") {
+            openHelp()
+        }
 
         Button("Reveal Debug Log…") {
             revealDebugLog()

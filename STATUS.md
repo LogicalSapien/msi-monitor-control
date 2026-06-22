@@ -4,6 +4,34 @@
 
 ## Current focus
 
+**v0.2.3 — PBP edge-switch KVM + README refresh + in-app Help (macOS).** DONE +
+verified (uncommitted — awaiting Codex review of both apps).
+
+**v0.2.3 — PBP edge-switch KVM + in-app Help (Windows side).** Code-complete (not
+built locally — no dotnet on dev Mac; windows-latest CI is the gate):
+- `EdgeSwitchTracker.cs` (new) + `EdgeSwitchLogic.cs` (pure state machine, separately
+  testable): WH_MOUSE_LL hook on the WinForms UI thread; 48-px dead zone + 800-ms dwell
+  hysteresis; 3440×1440 display match via Screen.AllScreens; input→KVM mapping
+  (TypeC→KvmUsbC, DP→KvmUpstream, HDMI→no switch); state machine (Idle/Standby/Active);
+  `SystemEvents.DisplaySettingsChanged` re-scan.
+- `HotkeyConfig.cs`: added `EdgeSwitchEnabled` (bool, default false) after `altGrAvoidList`
+  — correct §3.8 serialisation order for fixture append.
+- `TrayApp.cs`: promoted `_pbpMainSource`/`_pbpSubSource` fields; `HiddenInvokeTarget`
+  for BeginInvoke; tracker wired in constructor + `SetEnabled` on settings Save;
+  `NotifyPbpMode` in `RecordLastSent`; "Help…" tray menu item.
+- `SettingsForm.cs`: added "Edge-Switch KVM" GroupBox (toggle + explainer + privacy
+  note); "Help…" button; `currentEdgeSwitchEnabled` parameter (default=false, backward-
+  compat); layout expanded to 8 rows.
+- `HelpForm.cs` (new): tabbed help (Hotkey Cheat-Sheet / Quick Start / Troubleshooting /
+  About) — live config for chord display; links to GitHub via Process.Start.
+- `EdgeSwitchTests.cs` (new): 17 unit tests via `EdgeSwitchLogic` directly (no hook/
+  display needed); covers mapping, dead-zone, dwell, HDMI no-switch, Reset.
+- `MsiMonitorControl.csproj`: added InternalsVisibleTo(MsiMonitorControl.Tests).
+- Fixture relay COMPLETE: msi-mac appended `"edgeSwitchEnabled": false` to all 3 fixtures;
+  both byte-equality tests re-enabled (`DefaultToJson_EqualsWindowsFixture_ByteForByte` +
+  `CtrlShiftPreset_IsByteIdenticalToSharedFixture`). All 17 edge-switch tests + all fixture
+  tests expected GREEN in CI.
+
 **v0.2.2 — HDMI inputs + PBP/PIP + source-select + live status (macOS).** DONE +
 verified (uncommitted — awaiting single Codex review of both apps). PROTOCOL.md +
 design spec updated with the fully hardware-confirmed mapping; probe tools committed
@@ -28,6 +56,33 @@ to main by lead (973bc94).
 - **Key model extended:** `HotkeyChord` now accepts named keys (`Space`) beyond
   A–Z/0–9 — `normaliseKey`, validation, Carbon keycode 49, capture-by-keyCode,
   `⌃⇧⌘ Space` display, resilient-loader normalisation. SETTINGS.md §3.4 documents it.
+
+### v0.2.3 — PBP edge-switch KVM + README + Help (msi-mac, 2026-06-22 — awaiting Codex review + commit)
+
+Three tasks: (1) PBP edge-switch KVM, (2) README refresh, (3) in-app Help screen.
+
+| Item | File(s) | Notes |
+|:-----|:--------|:------|
+| **`edgeSwitchEnabled` config field** | `MSIControl/HotkeyConfig.swift` | New `Bool` field (default false) in `HotkeyConfig`. Custom `Codable` init with `decodeIfPresent` so old configs load cleanly. `jsonData()` appends `"edgeSwitchEnabled": false/true` after `altGrAvoidList`. |
+| **Fixtures regenerated × 3** | `docs/fixtures/settings.example.{macos,windows,ctrlshift}.json` | All three now have `"edgeSwitchEnabled": false` as last field. Byte-identity preserved across all presets. |
+| **PBP source fields promoted** | `MSIControlApp/DeviceState.swift`, `SettingsView.swift` | `pbpMainSource`/`pbpSubSource: InputEnum` moved from `SettingsView @State` to `DeviceState @Published` so `EdgeSwitchTracker` can read them (design §4.3). `DeviceState` also gains `onPBPModeChanged: (() -> Void)?` callback. |
+| **`EdgeSwitchTracker.swift` (NEW)** | `MSIControlApp/EdgeSwitchTracker.swift` | CGEventTap, dedicated runloop thread, NSLock for cross-thread value sharing (msiFrame/dividerX/isEnabled), ±48 px dead zone + 800 ms dwell, input→KVM mapping. Permission helpers: `InputMonitoringStatus`, `probeInputMonitoringPermission()`. |
+| **Settings UI — Edge-Switch section** | `MSIControlApp/SettingsView.swift` | New "Edge-Switch KVM" section below PBP: toggle, explainer, privacy note, Input Monitoring status row with deep-link "Open System Settings…" button (shown when denied). |
+| **SettingsStore wired** | `MSIControlApp/SettingsStore.swift` | `setEdgeSwitchEnabled(_:)`: probes permission on enable, persists, notifies tracker. `inputMonitoringStatus: InputMonitoringStatus` published. `edgeSwitchTracker: EdgeSwitchTracker?` retained. |
+| **App.swift wired** | `MSIControlApp/App.swift` | Creates `EdgeSwitchTracker` alongside `SettingsStore` in `init`. Wires `onPBPModeChanged` callback → tracker. Applies initial `edgeSwitchEnabled` if config was saved with it true. |
+| **SETTINGS.md updated** | `docs/SETTINGS.md` | §3.1 + §3.8: `edgeSwitchEnabled` documented. |
+| **EdgeSwitchTests.swift (NEW)** | `Tests/MSIControlTests/EdgeSwitchTests.swift` | 8 tests: config round-trip, missing-on-load defaults false, fixture byte check, KVM mapping contract assertions. |
+| **README.md refreshed** | `README.md` | Full current feature set: all inputs (HDMI1/2/Type-C/DP), KVM (USB-C/Upstream/Auto), PBP/PIP modes + source select, configurable hotkeys + presets + rebinding, quick-launcher, edge-switch KVM, live status, debug log. Updated default hotkey tables (both platforms). Updated first-launch notes (Gatekeeper/SmartScreen). |
+| **HelpView.swift (NEW)** | `MSIControlApp/HelpView.swift` | In-app Help window: (a) live hotkey cheat-sheet, (b) feature quick-start, (c) troubleshooting, (d) About/links. Opened from menu bar "Help…" and Settings "Help…" button. |
+| **MenuBarView + App.swift wired** | `MSIControlApp/MenuBarView.swift`, `App.swift` | "Help…" menu item; `Window("help")` scene; `openHelp` closure passed to Settings. |
+
+**Fixture `edgeSwitchEnabled` bytes for Windows teammate:**
+```
+  "edgeSwitchEnabled": false
+```
+Appears as the last field after `altGrAvoidList` in all 3 fixtures (identical in all three — platform-independent boolean).
+
+**Verification (v0.2.3):** `swift build` + `swift build -c release` + `swift test` = **69 tests, 0 failed, 1 skipped** (fixture REGEN gate). `./build-app.sh` — adhoc-signed bundle, Sealed Resources valid. NOT committed — awaiting Codex review.
 
 **v0.2.1 — default hotkey scheme fix (macOS).** Default chord changed from ⌃⌥⇧ to
 **⌃⇧⌘ (Control+Shift+Command, NO Option)** per user testing; preset renamed
@@ -433,6 +488,18 @@ keys). Windows changes:
   + cross-load now include the 11th binding; monitor-only payload/never-throw tests gate on
   `IsMonitorCommand`.
 - Not built locally (no dotnet) → windows-latest CI is the gate. Not committed — single Codex review.
+
+**Codex review fix (v0.2.2, msi-windows — 1 blocking + non-blockers):**
+- 🔴 **HID-boundary guard:** `MsiDevice.Send` now returns the new `MsiResult.NotAMonitorCommand`
+  (never throws) for an app-only command (ShowLauncher) — checked FIRST, before connectivity or
+  `PayloadFor`. Defence-in-depth: a direct/future `Send(ShowLauncher)` is safe even though the
+  dispatcher already routes it to the launcher. The `PayloadFor` catch widened to
+  NotImplemented+InvalidOperation as a backstop for any future payload-less command.
+- 🟡 Tests: `Send(ShowLauncher)`→NotAMonitorCommand (no throw, no monitor); `SetPbpSource`→
+  DeviceNotFound (no monitor); `Send_ReturnsDeviceNotFound` theory extended to all 10 monitor
+  commands (HDMI1/2 + PBP modes incl.).
+- 🟡 Stale comments cleaned: removed "UNKNOWN payload / reverse-engineer" wording from HotKeys.cs,
+  TrayApp.cs, MsiDevice.cs (all monitor payloads are hardware-confirmed in v0.2.2).
 
 ## Blockers
 

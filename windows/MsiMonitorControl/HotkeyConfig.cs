@@ -138,6 +138,15 @@ public sealed class HotkeyConfig
     [JsonPropertyName("altGrAvoidList")]
     public AltGrAvoidList AltGrAvoidList { get; set; } = MsiMonitorControl.AltGrAvoidList.Default();
 
+    /// <summary>
+    /// Whether the PBP edge-switch KVM feature is enabled (v0.2.3).
+    /// Opt-in, off by default. When true and PBP mode is active, moving the cursor
+    /// across the centre divider automatically switches the KVM.
+    /// Missing on load (older config) → treated as false (see docs/SETTINGS.md §3.1).
+    /// </summary>
+    [JsonPropertyName("edgeSwitchEnabled")]
+    public bool EdgeSwitchEnabled { get; set; } = false;
+
     // ------------------------------------------------------------------------
     // Paths (docs/SETTINGS.md §2) — vendor-nested under LogicalSapien.
     // ------------------------------------------------------------------------
@@ -285,9 +294,10 @@ public sealed class HotkeyConfig
 
         return new HotkeyConfig
         {
-            SchemaVersion  = CurrentSchemaVersion,
-            Preset         = HotkeyPreset.CmdShiftCtrl,
-            LaunchAtLogin  = false,
+            SchemaVersion      = CurrentSchemaVersion,
+            Preset             = HotkeyPreset.CmdShiftCtrl,
+            LaunchAtLogin      = false,
+            EdgeSwitchEnabled  = false,   // v0.2.3 — opt-in, off by default
             Bindings = new Dictionary<string, List<Chord>>
             {
                 ["inputHDMI1"]  = new() { Bound("H") },  // v0.2.2

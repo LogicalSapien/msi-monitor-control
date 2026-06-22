@@ -129,5 +129,6 @@
       "0"
     ],
     "note": "Letters/digits that commonly carry an AltGr-composed char on EU layouts (e.g. @, EUR, {, }, [, ], accented vowels). Advisory only."
-  }
+  },
+  "edgeSwitchEnabled": false
 }

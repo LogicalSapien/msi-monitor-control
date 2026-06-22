@@ -8,16 +8,21 @@ namespace MsiMonitorControl;
 /// settings window for rebinding hotkeys and toggling launch-at-login (docs/SETTINGS.md §8(b)).
 ///
 /// Hotkeys and menu shortcuts are driven by a loaded <see cref="HotkeyConfig"/> rather than a
-/// static table. Actions with UNKNOWN payloads (PBP On/Off and KVM Auto — see PROTOCOL.md)
-/// appear greyed out and are excluded from hotkey registration until their payloads are
-/// confirmed via hardware reverse-engineering. Input switching and KVM USB-C/Upstream have
-/// confirmed payloads and are live.
+/// static table. v0.2.2: all monitor commands (inputs incl. HDMI1/2, KVM incl. Auto, PBP/PIP
+/// modes) have hardware-confirmed payloads and are live; the quick-launcher (`showLauncher`) is
+/// an app-only action handled in dispatch (no HID). The active item in each group is ticked from
+/// the in-memory last-sent tracker.
+///
+/// v0.2.3: adds the PBP edge-switch KVM feature (<see cref="EdgeSwitchTracker"/>) and the
+/// in-app help screen (<see cref="HelpForm"/>). PBP source fields are promoted from the settings
+/// UI to TrayApp so the tracker can read them.
 /// </summary>
 internal sealed class TrayApp : ApplicationContext
 {
     private readonly NotifyIcon _trayIcon;
     private readonly MsiDevice _device;
     private readonly HotKeys _hotKeys;
+    private readonly EdgeSwitchTracker _edgeSwitchTracker;
     private HotkeyConfig _config;
 
     // Live status (v0.2.2): the last command THIS app sent in each group, this session only.
@@ -28,6 +33,12 @@ internal sealed class TrayApp : ApplicationContext
     private CommandKind? _lastInput;
     private CommandKind? _lastKvm;
     private CommandKind? _lastPbpMode;
+
+    // v0.2.3: PBP source configuration — promoted from SettingsForm @State so the edge-switch
+    // tracker can read the source in each PBP window without touching the UI (§4.3).
+    // Updated whenever the user selects a source in the Settings PBP section.
+    private Command.PbpInput _pbpMainSource = Command.PbpInput.TypeC;
+    private Command.PbpInput _pbpSubSource  = Command.PbpInput.Dp;
 
     // Maps a live menu item back to its command so we can re-apply the active-tick on each send.
     private readonly Dictionary<CommandKind, ToolStripMenuItem> _commandItems = new();
@@ -52,7 +63,13 @@ internal sealed class TrayApp : ApplicationContext
         _hotKeys = new HotKeys(OnCommand, _config);
         WarnOnFailedChords();
 
-        DebugLog.Info($"Tray ready (config preset={_config.Preset}, monitor {(_device.IsConnected ? "connected" : "not found")}).");
+        // v0.2.3: create the edge-switch tracker. It needs a UI-thread control for BeginInvoke;
+        // we pass the tray icon's (invisible) associated component — but we need a real live
+        // control handle, so we use a minimal hidden form as the invoke target.
+        _edgeSwitchTracker = new EdgeSwitchTracker(OnCommand, _invokeTarget);
+        _edgeSwitchTracker.SetEnabled(_config.EdgeSwitchEnabled, _lastPbpMode);
+
+        DebugLog.Info($"Tray ready (config preset={_config.Preset}, edgeSwitch={_config.EdgeSwitchEnabled}, monitor {(_device.IsConnected ? "connected" : "not found")}).");
 
         // Refresh device list on tray icon double-click.
         _trayIcon.DoubleClick += (_, _) =>
@@ -61,6 +78,10 @@ internal sealed class TrayApp : ApplicationContext
             UpdateConnectedState();
         };
     }
+
+    // A hidden control whose handle gives us a stable BeginInvoke target on the UI thread.
+    // Created before the tracker so the handle exists by the time EdgeSwitchTracker's ctor runs.
+    private readonly HiddenInvokeTarget _invokeTarget = new();
 
     private ContextMenuStrip BuildMenu()
     {
@@ -91,6 +112,10 @@ internal sealed class TrayApp : ApplicationContext
         var settingsItem = new ToolStripMenuItem("Settings…");
         settingsItem.Click += (_, _) => OpenSettings();
         menu.Items.Add(settingsItem);
+
+        var helpItem = new ToolStripMenuItem("Help…");
+        helpItem.Click += (_, _) => ShowHelp();
+        menu.Items.Add(helpItem);
 
         var logItem = new ToolStripMenuItem("Reveal debug log");
         logItem.Click += (_, _) => DebugLog.OpenLogFolder();
@@ -137,12 +162,13 @@ internal sealed class TrayApp : ApplicationContext
 
     /// <summary>
     /// Opens the settings window modally. On Save: persist the config, live-re-register the
-    /// hotkeys, reconcile launch-at-login, and rebuild the menu so the derived shortcuts update.
+    /// hotkeys, reconcile launch-at-login, apply edge-switch toggle, and rebuild the menu.
     /// </summary>
     private void OpenSettings()
     {
         // PBP mode + source-select dropdowns send live (not config edits); route them through the
         // same OnCommand (which records last-sent + ticks the menu) and the device source API.
+        // v0.2.3: source changes also update the tracker's source state.
         using var form = new SettingsForm(
             _config,
             sendCommand: OnCommand,
@@ -153,7 +179,15 @@ internal sealed class TrayApp : ApplicationContext
                     ShowBalloon("Monitor not found. Is the USB cable connected?", ToolTipIcon.Warning);
                 else if (result == MsiResult.SendFailed)
                     ShowBalloon("Failed to set the PBP source.", ToolTipIcon.Error);
-            });
+
+                // v0.2.3: keep the tracker's source map in sync regardless of send result.
+                if (window == Command.PbpWindow.Main)
+                    _pbpMainSource = input;
+                else
+                    _pbpSubSource = input;
+                _edgeSwitchTracker.SetSources(_pbpMainSource, _pbpSubSource);
+            },
+            currentEdgeSwitchEnabled: _config.EdgeSwitchEnabled);
         if (form.ShowDialog() != DialogResult.OK)
             return;
 
@@ -196,6 +230,9 @@ internal sealed class TrayApp : ApplicationContext
         }
 
         _config = updated;
+
+        // v0.2.3: apply edge-switch enabled state (may install/remove the mouse hook).
+        _edgeSwitchTracker.SetEnabled(_config.EdgeSwitchEnabled, _lastPbpMode);
 
         var oldMenu = _trayIcon.ContextMenuStrip;
         _trayIcon.ContextMenuStrip = BuildMenu();
@@ -256,7 +293,10 @@ internal sealed class TrayApp : ApplicationContext
             case CommandKind.KvmUsbC or CommandKind.KvmUpstream or CommandKind.KvmAuto:
                 _lastKvm = command; break;
             case CommandKind.PbpOff or CommandKind.PbpPip or CommandKind.PbpOn:
-                _lastPbpMode = command; break;
+                _lastPbpMode = command;
+                // v0.2.3: notify the edge-switch tracker so it can transition Standby ↔ Active.
+                _edgeSwitchTracker.NotifyPbpMode(command);
+                break;
         }
     }
 
@@ -272,6 +312,25 @@ internal sealed class TrayApp : ApplicationContext
                 DebugLog.Warn($"No app handler for non-monitor command {command}.");
                 break;
         }
+    }
+
+    private HelpForm? _helpForm;
+
+    /// <summary>
+    /// Opens the in-app help window (or brings it to the front if already open). v0.2.3.
+    /// </summary>
+    private void ShowHelp()
+    {
+        if (_helpForm is { IsDisposed: false })
+        {
+            _helpForm.Activate();
+            return;
+        }
+
+        _helpForm = new HelpForm(_config);
+        _helpForm.FormClosed += (_, _) => _helpForm = null;
+        _helpForm.Show();
+        _helpForm.Activate();
     }
 
     private LauncherForm? _launcher;
@@ -357,11 +416,30 @@ internal sealed class TrayApp : ApplicationContext
             // Ensures cleanup happens even if Application.Run returns by another path,
             // not only via the Exit menu item.
             _launcher?.Dispose();
+            _helpForm?.Dispose();
+            _edgeSwitchTracker.Dispose();
             _hotKeys.Dispose();
+            _invokeTarget.Dispose();
             _trayIcon.Visible = false;
             _trayIcon.Dispose();
         }
 
         base.Dispose(disposing);
+    }
+}
+
+/// <summary>
+/// A minimal hidden WinForms control whose sole purpose is to provide a stable
+/// <c>BeginInvoke</c> target on the UI thread for <see cref="EdgeSwitchTracker"/>.
+/// Its handle is created on construction so it's immediately usable.
+/// </summary>
+internal sealed class HiddenInvokeTarget : Control
+{
+    public HiddenInvokeTarget()
+    {
+        SetStyle(ControlStyles.Opaque, true);
+        Visible = false;
+        // Force handle creation so BeginInvoke works before the control is shown.
+        _ = Handle;
     }
 }

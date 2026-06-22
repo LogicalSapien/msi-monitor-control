@@ -25,4 +25,14 @@
     <PackageReference Include="HidSharp" Version="2.1.0" />
   </ItemGroup>
 
+  <!--
+    Expose internal types (EdgeSwitchLogic, DebugLog test-seams) to the unit-test project.
+    Required since v0.2.3 when EdgeSwitchLogic was extracted for headless unit testing.
+  -->
+  <ItemGroup>
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleTo">
+      <_Parameter1>MsiMonitorControl.Tests</_Parameter1>
+    </AssemblyAttribute>
+  </ItemGroup>
+
 </Project>

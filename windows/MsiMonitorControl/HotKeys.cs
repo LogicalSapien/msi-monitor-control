@@ -26,8 +26,8 @@ namespace MsiMonitorControl;
 /// <list type="bullet">
 /// <item>Each chord becomes one Win32 registration (multiple chords per action supported).</item>
 /// <item>Actions whose command is unavailable (<see cref="Command.IsAvailable"/>) or whose
-///   binding array is empty register nothing — UNKNOWN-payload actions never claim a dead
-///   chord (mirrors the macOS app's availability gating).</item>
+///   binding array is empty register nothing (mirrors the macOS app's availability gating).
+///   In v0.2.2 every action is available, so this only skips empty bindings.</item>
 /// </list>
 /// </summary>
 internal sealed class HotKeys : IMessageFilter, IDisposable
@@ -145,7 +145,8 @@ internal sealed class HotKeys : IMessageFilter, IDisposable
                 continue;
             }
 
-            // Skip unavailable commands (UNKNOWN payloads): they must not claim a chord.
+            // Skip unavailable commands (they must not claim a chord). In v0.2.2 all commands are
+            // available — incl. showLauncher, which is a real (app-only) hotkey, so it registers.
             if (!Command.IsAvailable(kind.Value))
                 continue;
 

@@ -17,6 +17,15 @@ final class SettingsStore: ObservableObject {
     /// (reserved/in-use). Surfaced in the UI as a conflict (SETTINGS.md §3.5).
     @Published private(set) var osRejectedActions: [String] = []
 
+    /// Current Input Monitoring permission status (cached; updated when the user
+    /// enables the edge-switch toggle). The Settings UI observes this to show the
+    /// permission row (v0.2.3 design §1.1, §7.1).
+    @Published private(set) var inputMonitoringStatus: InputMonitoringStatus = .unknown
+
+    /// The edge-switch KVM tracker. Created lazily when first needed; retained here
+    /// for the app lifetime once created.
+    var edgeSwitchTracker: EdgeSwitchTracker?
+
     private let hotKeyManager: HotkeyRegistering
     private let fileURL: URL?
 
@@ -78,6 +87,30 @@ final class SettingsStore: ObservableObject {
         c.bindings[actionId] = chords
         c.preset = c.inferredPreset()
         commit(c)
+    }
+
+    /// Enables or disables the edge-switch KVM feature (v0.2.3 design §1.1).
+    ///
+    /// On enable: probes Input Monitoring permission. If denied, does NOT apply the
+    /// setting — leaves the toggle off and updates `inputMonitoringStatus` so the UI
+    /// shows the advisory + System Settings button. If granted, saves and notifies the
+    /// tracker (per design §3.1).
+    func setEdgeSwitchEnabled(_ enabled: Bool) {
+        if enabled {
+            let status = probeInputMonitoringPermission()
+            inputMonitoringStatus = status
+            guard status == .granted else {
+                DebugLog.shared.warn("edge-switch toggle on — Input Monitoring denied; not enabling")
+                // Ensure the config stays false (the UI binding read will stay false).
+                return
+            }
+        }
+        var c = config
+        c.edgeSwitchEnabled = enabled
+        persist(c)
+        config = c
+        edgeSwitchTracker?.setEnabled(enabled)
+        DebugLog.shared.info("edge-switch \(enabled ? "enabled" : "disabled")")
     }
 
     /// Toggles launch-at-login. Calls the OS first; only persists on success so the

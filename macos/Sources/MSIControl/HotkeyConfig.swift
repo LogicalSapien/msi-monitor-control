@@ -198,7 +198,8 @@ public struct AltGrAvoidList: Codable, Equatable, Sendable {
 // MARK: - HotkeyConfig
 
 /// The full settings model: schema version, preset label, launch-at-login flag,
-/// per-action bindings (keyed by `Command.actionId`), and the AltGr advisory list.
+/// per-action bindings (keyed by `Command.actionId`), the AltGr advisory list, and
+/// the edge-switch KVM flag (v0.2.3, SETTINGS.md §3.1).
 ///
 /// Load/save go through `HotkeyConfig.load(...)` / `save(to:)`, which implement the
 /// atomic-write and never-block fallback rules from SETTINGS.md §4.
@@ -210,17 +211,51 @@ public struct HotkeyConfig: Codable, Equatable, Sendable {
     /// (used for actions whose HID payload is still UNKNOWN).
     public var bindings: [String: [HotkeyChord]]
     public var altGrAvoidList: AltGrAvoidList
+    /// Whether the PBP edge-switch KVM feature is enabled (opt-in, default false).
+    /// When true and PBP mode is active, moving the cursor across the centre divider
+    /// automatically switches the KVM to the source in that window (v0.2.3 design doc
+    /// §6.1, SETTINGS.md §3.1). Missing on load → treated as false.
+    public var edgeSwitchEnabled: Bool
 
     public init(schemaVersion: Int = kHotkeyConfigSchemaVersion,
                 preset: HotkeyPreset = .cmdShiftCtrl,
                 launchAtLogin: Bool = false,
                 bindings: [String: [HotkeyChord]],
-                altGrAvoidList: AltGrAvoidList = .builtIn) {
+                altGrAvoidList: AltGrAvoidList = .builtIn,
+                edgeSwitchEnabled: Bool = false) {
         self.schemaVersion = schemaVersion
         self.preset = preset
         self.launchAtLogin = launchAtLogin
         self.bindings = bindings
         self.altGrAvoidList = altGrAvoidList
+        self.edgeSwitchEnabled = edgeSwitchEnabled
+    }
+
+    // MARK: Codable — custom decode for optional `edgeSwitchEnabled`
+
+    enum CodingKeys: String, CodingKey {
+        case schemaVersion, preset, launchAtLogin, bindings, altGrAvoidList, edgeSwitchEnabled
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        schemaVersion = try c.decode(Int.self, forKey: .schemaVersion)
+        preset = try c.decode(HotkeyPreset.self, forKey: .preset)
+        launchAtLogin = try c.decode(Bool.self, forKey: .launchAtLogin)
+        bindings = try c.decode([String: [HotkeyChord]].self, forKey: .bindings)
+        altGrAvoidList = try c.decodeIfPresent(AltGrAvoidList.self, forKey: .altGrAvoidList) ?? .builtIn
+        // edgeSwitchEnabled is new in v0.2.3 — older configs may not have it; default false.
+        edgeSwitchEnabled = try c.decodeIfPresent(Bool.self, forKey: .edgeSwitchEnabled) ?? false
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(schemaVersion, forKey: .schemaVersion)
+        try c.encode(preset, forKey: .preset)
+        try c.encode(launchAtLogin, forKey: .launchAtLogin)
+        try c.encode(bindings, forKey: .bindings)
+        try c.encode(altGrAvoidList, forKey: .altGrAvoidList)
+        try c.encode(edgeSwitchEnabled, forKey: .edgeSwitchEnabled)
     }
 
     // MARK: Defaults
@@ -337,6 +372,8 @@ public struct HotkeyConfig: Codable, Equatable, Sendable {
         let schemaVersion = object["schemaVersion"] as? Int ?? kHotkeyConfigSchemaVersion
         let preset = (object["preset"] as? String).flatMap(HotkeyPreset.init(rawValue:)) ?? def.preset
         let launchAtLogin = object["launchAtLogin"] as? Bool ?? def.launchAtLogin
+        // edgeSwitchEnabled — opt-in, defaults to false when absent (§6.1).
+        let edgeSwitchEnabled = object["edgeSwitchEnabled"] as? Bool ?? false
 
         // Bindings: decode each chord independently; drop the malformed ones.
         var bindings: [String: [HotkeyChord]] = [:]
@@ -383,7 +420,7 @@ public struct HotkeyConfig: Codable, Equatable, Sendable {
 
         return HotkeyConfig(schemaVersion: schemaVersion, preset: preset,
                             launchAtLogin: launchAtLogin, bindings: bindings,
-                            altGrAvoidList: altGr)
+                            altGrAvoidList: altGr, edgeSwitchEnabled: edgeSwitchEnabled)
     }
 
     /// Parses one chord from a loosely-typed JSON value, returning nil if invalid.
@@ -510,7 +547,10 @@ public struct HotkeyConfig: Codable, Equatable, Sendable {
         }
         out += "\(i2)],\n"
         out += "\(i2)\"note\": \(Self.jsonString(altGrAvoidList.note))\n"
-        out += "\(i1)}\n"
+        out += "\(i1)},\n"
+
+        // edgeSwitchEnabled — appended after altGrAvoidList (SETTINGS.md §3.8 / §6.1).
+        out += "\(i1)\"edgeSwitchEnabled\": \(edgeSwitchEnabled ? "true" : "false")\n"
 
         out += "}\n"   // closing brace + single trailing newline
         return Data(out.utf8)

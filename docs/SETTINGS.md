@@ -102,7 +102,8 @@ fixture → equivalent model* (proves mutual-loadability for the per-OS default)
   "preset": "cmdShiftCtrl",      // "cmdShiftCtrl" | "ctrlShift" | "legacy" | "custom"
   "launchAtLogin": false,        // boolean
   "bindings": { … },             // map: actionId -> array of chords (see 3.3)
-  "altGrAvoidList": { … }        // advisory data for the EU-layout warning (see 3.5)
+  "altGrAvoidList": { … },       // advisory data for the EU-layout warning (see 3.5)
+  "edgeSwitchEnabled": false     // boolean, v0.2.3 — PBP edge-switch KVM toggle (opt-in, default false)
 }
 ```
 
@@ -316,6 +317,9 @@ Canonical rules (schemaVersion 1):
   `option`/`alt` as synonyms, but the WRITTEN canonical token is `option`.)
 - `altGrAvoidList.keys` in the listed order; `note` verbatim. Forward slash `/` is
   emitted **unescaped**.
+- `edgeSwitchEnabled` is appended AFTER `altGrAvoidList` (v0.2.3, append-only to
+  preserve prior bytes of existing fields). Default `false`. Identical across all
+  three fixtures (platform-independent boolean — byte-identity holds for all presets).
 
 Each app has a test asserting `default.save()` bytes **==** the fixture bytes.
 
