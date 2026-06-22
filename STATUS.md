@@ -4,10 +4,34 @@
 
 ## Current focus
 
-Phase 1 (Functional MVP) in progress. Two teammates building against
-`docs/superpowers/plans/2026-06-22-msi-monitor-control.md`:
-- **msi-mac** — Track A (scaffold), Track B (macOS app), `docs/PROTOCOL.md`, D-macos CI.
+Phase 1 code complete. Both teammates done. Awaiting CI green + human smoke test.
+- **msi-mac** — Track A (scaffold), Track B (macOS app), `docs/PROTOCOL.md`, D-macos CI: **COMPLETE** (committed 2026-06-22).
 - **msi-windows** — Track C (Windows app) + Track D windows CI: **COMPLETE** (committed 2026-06-22).
+
+### macOS app — msi-mac (completed this session)
+
+| Task | Status | Commits |
+|:-----|:-------|:--------|
+| A1 — scaffold (LICENSE, .gitignore, README, CONTRIBUTING) | Done | 777dc47 |
+| B1 — PROTOCOL.md payloads extracted from reference | Done | 777dc47 |
+| B2 — `Command.swift` + unit tests (12 passing) | Done | e8b7cf8 |
+| B3 — `MSIDevice.swift` (IOHIDManager) + tests | Done | e8b7cf8 |
+| B4 — MenuBarView, HotKeys, App entry point | Done | e8b7cf8 |
+| D1 — macOS CI job in build.yml | Done (windows teammate also added windows job) | 22a79a6 |
+
+**`swift build` clean. `swift test`: 15 tests, 12 passed, 2 skipped (monitor physically
+connected on dev machine — will run fully in CI), 0 failed.**
+
+**Key decisions:**
+- `Command.inputTypeC` and `Command.inputDP` have real 53-byte payloads from PROTOCOL.md.
+- `pbpOn`, `pbpOff`, `kvmUSBC`, `kvmUpstream` return `payload = nil` — UNKNOWN, never invented.
+  Hidden from menu + hotkeys until confirmed payloads are added.
+- `MSIDevice.send()` returns `.payloadUnavailable` for nil-payload commands.
+- `NSApp.setActivationPolicy(.accessory)` used instead of `Info.plist LSUIElement` —
+  SwiftPM executables cannot embed a custom Info.plist.
+- Carbon `RegisterEventHotKey` via `InstallEventHandler` (not the C macro
+  `InstallApplicationEventHandler` which is unavailable in Swift).
+- Device-not-found tests skip automatically when monitor is physically present (XCTSkipIf).
 
 ## Windows app — msi-windows (completed this session)
 
