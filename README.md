@@ -29,11 +29,25 @@ and input switching with global hotkeys.
 
 **Requirements:** macOS 13 or later, Xcode command-line tools.
 
+#### Run from source
+
 ```bash
 cd macos
 swift build
 .build/debug/MSIControlApp
 ```
+
+#### Build a double-clickable .app bundle
+
+```bash
+cd macos
+./build-app.sh
+open build/MSIMonitorControl.app
+```
+
+The app is a menu-bar-only utility (no Dock icon). It is **unsigned** in Phase 1,
+so on first launch Gatekeeper may warn that it is from an unidentified developer —
+right-click the `.app` and choose **Open** to allow it (you only need to do this once).
 
 ### Default hotkeys
 

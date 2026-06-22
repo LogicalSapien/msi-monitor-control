@@ -7,11 +7,21 @@
     <true/>
     <key>CFBundleName</key>
     <string>MSI Monitor Control</string>
+    <key>CFBundleDisplayName</key>
+    <string>MSI Monitor Control</string>
     <key>CFBundleIdentifier</key>
-    <string>com.logicalspine.msi-monitor-control</string>
+    <string>com.logicalsapien.msimonitorcontrol</string>
+    <key>CFBundleExecutable</key>
+    <string>MSIControlApp</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
     <key>CFBundleVersion</key>
     <string>1</string>
     <key>CFBundleShortVersionString</key>
     <string>1.0.0</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>13.0</string>
+    <key>NSHighResolutionCapable</key>
+    <true/>
 </dict>
 </plist>
