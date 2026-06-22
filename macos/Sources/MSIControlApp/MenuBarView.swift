@@ -5,6 +5,9 @@ import MSIControl
 struct MenuBarView: View {
 
     @ObservedObject var deviceState: DeviceState
+    @ObservedObject var settings: SettingsStore
+    /// Opens the settings window (wired from the App scene).
+    var openSettings: () -> Void
 
     var body: some View {
         // Connection status indicator
@@ -25,15 +28,13 @@ struct MenuBarView: View {
             .foregroundStyle(.secondary)
             .padding(.horizontal)
 
-        // Only show available commands. Each row shows its global hotkey chord
-        // (⌃⌥⌘ + key) folded into the label text itself, e.g. "Input → Type-C  ⌃⌥⌘C".
-        // The `.menu` MenuBarExtra style renders as a native NSMenu, which DROPS a
-        // custom trailing `Text` in an HStack — so the chord must live in the
-        // button's own label string to survive. The chord comes from
-        // `command.shortcutDisplay`, the same source the Carbon hotkey registration
-        // uses, so the hint always matches the real binding.
+        // Only show available commands. Each row's chord is folded into the label
+        // text (native NSMenu drops a trailing custom Text) and is now DATA-DRIVEN
+        // from the loaded config via `settings.primaryDisplay` — not hardcoded —
+        // so it always reflects the user's current binding (SETTINGS.md §3.7).
         ForEach(Command.allCases.filter(\.isAvailable), id: \.self) { command in
-            Button("\(command.label)  \(command.shortcutDisplay)") {
+            let chord = settings.primaryDisplay(for: command)
+            Button(chord.isEmpty ? command.label : "\(command.label)  \(chord)") {
                 deviceState.send(command)
             }
             .disabled(!deviceState.isConnected)
@@ -48,6 +49,11 @@ struct MenuBarView: View {
         }
 
         Divider()
+
+        Button("Settings…") {
+            openSettings()
+        }
+        .keyboardShortcut(",")
 
         Button("Quit MSI Monitor Control") {
             NSApplication.shared.terminate(nil)

@@ -115,13 +115,38 @@ public enum Command: CaseIterable {
         }
     }
 
-    // MARK: - Default global hotkey
+    // MARK: - Stable action id (config contract)
 
-    /// The single character of this command's default global hotkey. The full
-    /// chord is always ⌃⌥⌘ + this key (see `shortcutDisplay`). This is the single
-    /// source of truth shared by the Carbon hotkey registration and the menu's
-    /// shortcut hint, so they can never drift apart.
-    public var shortcutKey: Character {
+    /// The stable string id used as the key in the shared settings config
+    /// (`docs/SETTINGS.md` §3.6). It maps 1:1 to a `Command` case and MUST match the
+    /// Windows `CommandKind` id and the JSON `bindings` keys exactly. **Never rename
+    /// an id** — it would orphan a user's saved binding. Add new ids only.
+    public var actionId: String {
+        switch self {
+        case .pbpOn:       return "pbpOn"
+        case .pbpOff:      return "pbpOff"
+        case .kvmUSBC:     return "kvmUSBC"
+        case .kvmUpstream: return "kvmUpstream"
+        case .kvmAuto:     return "kvmAuto"
+        case .inputTypeC:  return "inputTypeC"
+        case .inputDP:     return "inputDP"
+        }
+    }
+
+    /// Looks up a command by its stable `actionId` (the inverse of `actionId`),
+    /// e.g. to resolve a config `bindings` key back to a `Command`.
+    public static func from(actionId: String) -> Command? {
+        allCases.first { $0.actionId == actionId }
+    }
+
+    // MARK: - Default hotkey key
+
+    /// The default base key for this command's hotkey (SETTINGS.md §3.6). This is
+    /// only a SEED for the built-in default config — at runtime the actual key and
+    /// modifiers come from the loaded `HotkeyConfig`, never from here. The displayed
+    /// chord is computed by `HotkeyChord.display`, so there is no stored
+    /// shortcut string to drift.
+    public var defaultKey: Character {
         switch self {
         case .inputTypeC:  return "C"
         case .inputDP:     return "D"
@@ -131,10 +156,5 @@ public enum Command: CaseIterable {
         case .pbpOn:       return "P"
         case .pbpOff:      return "O"
         }
-    }
-
-    /// The human-readable chord shown in the menu, e.g. `⌃⌥⌘D`.
-    public var shortcutDisplay: String {
-        "⌃⌥⌘\(shortcutKey)"
     }
 }

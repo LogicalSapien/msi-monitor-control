@@ -121,10 +121,36 @@ final class CommandTests: XCTestCase {
         XCTAssertFalse(Command.kvmAuto.isAvailable)
     }
 
-    // MARK: - Hotkey chord display (single source of truth)
+    // MARK: - Default hotkey key (seed for the default config)
 
-    func testKVMAutoShortcutIsControlOptionCommandA() {
-        XCTAssertEqual(Command.kvmAuto.shortcutKey, "A")
-        XCTAssertEqual(Command.kvmAuto.shortcutDisplay, "⌃⌥⌘A")
+    func testKVMAutoDefaultKeyIsA() {
+        XCTAssertEqual(Command.kvmAuto.defaultKey, "A")
+    }
+
+    func testInputTypeCDefaultKeyIsC() {
+        XCTAssertEqual(Command.inputTypeC.defaultKey, "C")
+    }
+
+    // MARK: - Stable actionId (config contract, SETTINGS.md §3.6)
+
+    func testActionIdsAreStableAndUnique() {
+        let ids = Command.allCases.map(\.actionId)
+        XCTAssertEqual(Set(ids).count, Command.allCases.count,
+                       "actionIds must be unique across all commands")
+        // Exact ids are a contract with the Windows app + the JSON schema.
+        XCTAssertEqual(Command.inputTypeC.actionId, "inputTypeC")
+        XCTAssertEqual(Command.inputDP.actionId, "inputDP")
+        XCTAssertEqual(Command.kvmUSBC.actionId, "kvmUSBC")
+        XCTAssertEqual(Command.kvmUpstream.actionId, "kvmUpstream")
+        XCTAssertEqual(Command.kvmAuto.actionId, "kvmAuto")
+        XCTAssertEqual(Command.pbpOn.actionId, "pbpOn")
+        XCTAssertEqual(Command.pbpOff.actionId, "pbpOff")
+    }
+
+    func testFromActionIdRoundTrips() {
+        for command in Command.allCases {
+            XCTAssertEqual(Command.from(actionId: command.actionId), command)
+        }
+        XCTAssertNil(Command.from(actionId: "nonexistent"))
     }
 }

@@ -46,14 +46,20 @@ struct MSIControlApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
     @StateObject private var deviceState: DeviceState
+    @StateObject private var settings: SettingsStore
 
     /// Kept alive for the app lifetime — ARC would release it otherwise.
     private let hotKeyManager: HotKeyManager
 
+    @Environment(\.openWindow) private var openWindow
+
     init() {
         let state = DeviceState()
+        let manager = HotKeyManager(deviceState: state)
         _deviceState = StateObject(wrappedValue: state)
-        hotKeyManager = HotKeyManager(deviceState: state)
+        // SettingsStore loads the config and applies hotkeys + launch-at-login.
+        _settings = StateObject(wrappedValue: SettingsStore(hotKeyManager: manager))
+        hotKeyManager = manager
     }
 
     /// The custom template icon, loaded once. `nil` falls back to an SF Symbol.
@@ -61,7 +67,11 @@ struct MSIControlApp: App {
 
     var body: some Scene {
         MenuBarExtra {
-            MenuBarView(deviceState: deviceState)
+            MenuBarView(deviceState: deviceState, settings: settings) {
+                // Bring the app forward, then open the settings window.
+                NSApp.activate(ignoringOtherApps: true)
+                openWindow(id: "settings")
+            }
         } label: {
             if let icon = menuBarIcon {
                 Image(nsImage: icon)
@@ -71,5 +81,12 @@ struct MSIControlApp: App {
             }
         }
         .menuBarExtraStyle(.menu)
+
+        // Settings window, opened on demand from the menu. Accessory-policy apps
+        // have no standard Settings menu, so we use a plain Window we open by id.
+        Window("MSI Monitor Control Settings", id: "settings") {
+            SettingsView(settings: settings)
+        }
+        .windowResizability(.contentSize)
     }
 }
