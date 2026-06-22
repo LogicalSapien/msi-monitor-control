@@ -43,17 +43,18 @@ final class MSIDeviceTests: XCTestCase {
         }
     }
 
-    /// Every command now has a hardware-confirmed payload (v0.2.2), so a send never
-    /// returns `.payloadUnavailable`. Without a monitor it returns `.deviceNotFound`;
-    /// it must never `.payloadUnavailable` and never crash. (When a monitor is
-    /// attached it may succeed — that's fine.)
+    /// Every *monitor* command now has a hardware-confirmed payload (v0.2.2), so a
+    /// send never returns `.payloadUnavailable` for them. Without a monitor it returns
+    /// `.deviceNotFound`; it must never `.payloadUnavailable` and never crash. (When a
+    /// monitor is attached it may succeed — that's fine.) The non-HID `showLauncher`
+    /// action is excluded — it has no payload by design and is never sent to the device.
     func testSendNeverReportsPayloadUnavailable() throws {
         try requireNoMonitor()
         let device = MSIDevice()
-        for command in Command.allCases {
+        for command in Command.allCases where command.isMonitorCommand {
             let result = device.send(command)
             if case .failure(.payloadUnavailable) = result {
-                XCTFail("\(command) reported payloadUnavailable — all commands have payloads in v0.2.2")
+                XCTFail("\(command) reported payloadUnavailable — all monitor commands have payloads in v0.2.2")
             }
         }
     }
