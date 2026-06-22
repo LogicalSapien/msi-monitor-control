@@ -138,10 +138,16 @@ jobs:
 
             ### First-launch (unsigned apps)
 
-            **macOS:** Right-click the `.app` → **Open** → confirm. Or strip quarantine:
+            **macOS — if you see "MSIMonitorControl is damaged and can't be opened":**
+            this is macOS blocking a quarantined, unsigned download — the file is not
+            actually corrupt. Clear the quarantine flag, then open:
             ```
             xattr -dr com.apple.quarantine /Applications/MSIMonitorControl.app
+            open /Applications/MSIMonitorControl.app
             ```
+            This is safe — the app is open-source and MIT-licensed. (The app is ad-hoc
+            signed, so right-click → **Open** also works on many setups; the `xattr`
+            command is the reliable escape hatch if it does not.)
 
             **Windows:** Windows SmartScreen may block the `.exe`. Click **More info → Run anyway**.
 

@@ -95,14 +95,23 @@ every version tag. No build tools required — just download and run.
 1. Download `MSIMonitorControl-macOS.dmg` (or the `.zip`).
 2. Open the `.dmg` and drag `MSIMonitorControl.app` to your Applications folder
    (or anywhere you like).
-3. **First launch — Gatekeeper:** the app is **unsigned** (no Apple Developer certificate).
-   macOS will block it by default. To allow it, use either method:
-   - **Right-click** the `.app` → **Open** → click **Open** in the dialog.
-     You only need to do this once; subsequent launches work normally.
-   - Or strip the quarantine attribute from Terminal:
-     ```
-     xattr -dr com.apple.quarantine /Applications/MSIMonitorControl.app
-     ```
+3. **First launch — clear the download quarantine (recommended).** The app is
+   **unsigned** (no Apple Developer certificate) and arrives with macOS's
+   download-quarantine flag. macOS may show **"MSIMonitorControl is damaged and
+   can't be opened"** or block it via Gatekeeper. The reliable fix is to strip the
+   quarantine flag in Terminal, then open the app:
+   ```
+   xattr -dr com.apple.quarantine /Applications/MSIMonitorControl.app
+   open /Applications/MSIMonitorControl.app
+   ```
+   (Adjust the path if you put the app elsewhere.) This is **safe**: the app is
+   open-source and MIT-licensed — you can read every line in this repository. The
+   "damaged" message does not mean the file is corrupt; it is macOS refusing to
+   run a quarantined, unsigned app, and `xattr` simply removes that quarantine.
+
+   The app *is* ad-hoc signed, so on many setups you can instead just
+   **right-click** the `.app` → **Open** → **Open**. If that still reports
+   "damaged", use the `xattr` command above — it always works.
 
 ### Windows
 

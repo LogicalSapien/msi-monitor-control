@@ -1,10 +1,13 @@
 #!/usr/bin/env bash
 #
-# build-app.sh — assemble an unsigned MSIMonitorControl.app bundle.
+# build-app.sh — assemble an ad-hoc-signed MSIMonitorControl.app bundle.
 #
-# Phase 1: unsigned, build-and-run from source. No signing or notarisation
-# (that is Phase 2). On first launch Gatekeeper may warn — right-click the
-# .app and choose Open to allow it.
+# Phase 1: no Developer ID signing or notarisation (that is Phase 2). The bundle
+# IS ad-hoc signed (codesign --sign -) so the signature seals the assembled
+# bundle — without this seal macOS reports "MSIMonitorControl is damaged and
+# can't be opened" on a downloaded copy. On first launch Gatekeeper may still
+# warn (no Developer ID); right-click → Open, or strip the quarantine flag:
+#   xattr -dr com.apple.quarantine build/MSIMonitorControl.app
 #
 # Usage:
 #   ./build-app.sh
@@ -19,6 +22,8 @@ readonly BINARY_NAME="MSIControlApp"          # the SwiftPM executable target
 readonly APP_NAME="MSIMonitorControl"
 readonly APP_DIR="build/${APP_NAME}.app"
 readonly INFO_PLIST="Sources/MSIControlApp/Info.plist"
+readonly ICON_SRC="../assets/icon.icns"       # produced by the logo asset set
+readonly ICON_DEST_NAME="icon.icns"           # must match CFBundleIconFile
 
 echo "==> Building release binary…"
 swift build -c release
@@ -38,10 +43,34 @@ mkdir -p "${APP_DIR}/Contents/Resources"
 cp "${RELEASE_BIN}" "${APP_DIR}/Contents/MacOS/${BINARY_NAME}"
 cp "${INFO_PLIST}"  "${APP_DIR}/Contents/Info.plist"
 
+# Embed the app icon if the asset set has landed (CFBundleIconFile is already
+# set in Info.plist). Until assets/icon.icns is committed this is skipped and
+# the app uses the default icon.
+if [[ -f "${ICON_SRC}" ]]; then
+    cp "${ICON_SRC}" "${APP_DIR}/Contents/Resources/${ICON_DEST_NAME}"
+    echo "==> Embedded icon: ${ICON_SRC}"
+else
+    echo "==> Icon ${ICON_SRC} not found yet — using default icon (will embed once committed)."
+fi
+
 # Sanity check: CFBundleExecutable must match the copied binary name.
 plist_exec="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "${APP_DIR}/Contents/Info.plist")"
 if [[ "${plist_exec}" != "${BINARY_NAME}" ]]; then
     echo "error: CFBundleExecutable (${plist_exec}) does not match binary (${BINARY_NAME})" >&2
+    exit 1
+fi
+
+# Ad-hoc deep sign so the signature SEALS the assembled bundle. Without this the
+# linker's adhoc binary signature does not cover the bundle (Info.plist=not
+# bound, Sealed Resources=none) and a downloaded copy is reported as "damaged".
+echo "==> Ad-hoc signing (seals the bundle)…"
+codesign --force --deep --sign - "${APP_DIR}"
+
+# Verify the seal really took. Fail the build if it did not.
+echo "==> Verifying signature…"
+codesign --verify --deep --strict --verbose=2 "${APP_DIR}"
+if ! codesign -dv "${APP_DIR}" 2>&1 | grep -q "Sealed Resources"; then
+    echo "error: bundle is not sealed (no 'Sealed Resources') after signing" >&2
     exit 1
 fi
 
