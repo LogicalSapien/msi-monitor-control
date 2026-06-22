@@ -125,4 +125,51 @@ public static class Command
     /// <summary>All command kinds, in declaration order.</summary>
     public static IReadOnlyList<CommandKind> AllCases { get; } =
         Enum.GetValues<CommandKind>();
+
+    // -------------------------------------------------------------------------
+    // Data-driven identity (docs/SETTINGS.md §3.6, §5).
+    //
+    // v0.2.0: Command no longer hardcodes a key/modifier. The chord comes from the
+    // loaded HotkeyConfig, keyed by the stable actionId below. Command keeps only its
+    // intrinsic facts: actionId, label, payload, IsAvailable.
+    // -------------------------------------------------------------------------
+
+    /// <summary>
+    /// The stable string id that maps this command 1:1 to a config binding (and to the
+    /// macOS <c>Command</c> case). These ids are a public contract — <b>never rename one</b>
+    /// (it would orphan a user's binding); only add new ones. See docs/SETTINGS.md §3.6.
+    /// </summary>
+    public static string ActionId(CommandKind command) => command switch
+    {
+        CommandKind.InputTypeC  => "inputTypeC",
+        CommandKind.InputDp     => "inputDP",
+        CommandKind.KvmUsbC     => "kvmUSBC",
+        CommandKind.KvmUpstream => "kvmUpstream",
+        CommandKind.KvmAuto     => "kvmAuto",
+        CommandKind.PbpOn       => "pbpOn",
+        CommandKind.PbpOff      => "pbpOff",
+        _ => throw new ArgumentOutOfRangeException(nameof(command), command, null),
+    };
+
+    /// <summary>The reverse map: the <see cref="CommandKind"/> for a stable actionId, or null.</summary>
+    public static CommandKind? KindForActionId(string actionId)
+    {
+        foreach (var kind in AllCases)
+            if (ActionId(kind) == actionId)
+                return kind;
+        return null;
+    }
+
+    /// <summary>The human-readable menu/UI label for this command (British English).</summary>
+    public static string Label(CommandKind command) => command switch
+    {
+        CommandKind.InputTypeC  => "Input → Type-C",
+        CommandKind.InputDp     => "Input → DP",
+        CommandKind.KvmUsbC     => "KVM → USB-C",
+        CommandKind.KvmUpstream => "KVM → Upstream",
+        CommandKind.KvmAuto     => "KVM → Auto",
+        CommandKind.PbpOn       => "PBP On",
+        CommandKind.PbpOff      => "PBP Off",
+        _ => throw new ArgumentOutOfRangeException(nameof(command), command, null),
+    };
 }

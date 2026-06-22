@@ -216,4 +216,49 @@ public class CommandTests
     {
         Assert.Equal(expected, Command.IsAvailable(command));
     }
+
+    // -------------------------------------------------------------------------
+    // Data-driven identity — stable actionIds (docs/SETTINGS.md §3.6) + labels.
+    // These ids are a public contract with the config; renaming one orphans a
+    // user's binding, so pin them down exactly.
+    // -------------------------------------------------------------------------
+
+    [Theory]
+    [InlineData(CommandKind.InputTypeC,  "inputTypeC")]
+    [InlineData(CommandKind.InputDp,     "inputDP")]
+    [InlineData(CommandKind.KvmUsbC,     "kvmUSBC")]
+    [InlineData(CommandKind.KvmUpstream, "kvmUpstream")]
+    [InlineData(CommandKind.KvmAuto,     "kvmAuto")]
+    [InlineData(CommandKind.PbpOn,       "pbpOn")]
+    [InlineData(CommandKind.PbpOff,      "pbpOff")]
+    public void ActionId_MatchesSettingsContract(CommandKind command, string expected)
+    {
+        Assert.Equal(expected, Command.ActionId(command));
+    }
+
+    [Fact]
+    public void KindForActionId_RoundTripsEveryCommand()
+    {
+        foreach (var kind in Command.AllCases)
+            Assert.Equal(kind, Command.KindForActionId(Command.ActionId(kind)));
+    }
+
+    [Fact]
+    public void KindForActionId_ReturnsNullForUnknownId()
+    {
+        Assert.Null(Command.KindForActionId("nope"));
+    }
+
+    [Theory]
+    [InlineData(CommandKind.InputTypeC,  "Input → Type-C")]
+    [InlineData(CommandKind.InputDp,     "Input → DP")]
+    [InlineData(CommandKind.KvmUsbC,     "KVM → USB-C")]
+    [InlineData(CommandKind.KvmUpstream, "KVM → Upstream")]
+    [InlineData(CommandKind.KvmAuto,     "KVM → Auto")]
+    [InlineData(CommandKind.PbpOn,       "PBP On")]
+    [InlineData(CommandKind.PbpOff,      "PBP Off")]
+    public void Label_IsBritishEnglishAndStable(CommandKind command, string expected)
+    {
+        Assert.Equal(expected, Command.Label(command));
+    }
 }

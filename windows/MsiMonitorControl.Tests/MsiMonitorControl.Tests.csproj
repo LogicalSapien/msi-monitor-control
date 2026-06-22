@@ -21,4 +21,16 @@
     <ProjectReference Include="..\MsiMonitorControl\MsiMonitorControl.csproj" />
   </ItemGroup>
 
+  <!--
+    Copy the shared cross-platform fixture into the test output so the round-trip test
+    (parse settings.example.json → reproduce the default bindings) can read it at runtime.
+    The Link keeps it at a stable relative path (fixtures/settings.example.json) regardless
+    of the source layout. This is the same §7 example the macOS app tests against.
+  -->
+  <ItemGroup>
+    <Content Include="..\..\docs\fixtures\settings.example.json" Link="fixtures\settings.example.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
 </Project>
