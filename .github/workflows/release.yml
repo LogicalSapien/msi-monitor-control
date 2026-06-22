@@ -147,7 +147,9 @@ jobs:
             ```
             This is safe — the app is open-source and MIT-licensed. (The app is ad-hoc
             signed, so right-click → **Open** also works on many setups; the `xattr`
-            command is the reliable escape hatch if it does not.)
+            command is the reliable escape hatch if it does not. The `-r` flag recurses
+            into the bundle — redundant when the flag is only on the `.app` root, but
+            harmless.)
 
             **Windows:** Windows SmartScreen may block the `.exe`. Click **More info → Run anyway**.
 

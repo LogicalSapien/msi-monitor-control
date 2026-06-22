@@ -48,6 +48,10 @@ public final class MSIDevice {
     private var manager: IOHIDManager?
     private var hidDevice: IOHIDDevice?
 
+    /// Serialises the locate-and-send block in `send` so two threads cannot both
+    /// run `locateDevice()` and leak a handle (a TOCTOU race on `hidDevice`).
+    private let lock = NSLock()
+
     /// Whether a matching MD342CQP device has been located. (Open state is
     /// (re)established lazily at send time — see `send`.)
     public private(set) var isConnected: Bool = false
@@ -125,15 +129,20 @@ public final class MSIDevice {
     }
 
     /// Closes the open device and manager, releasing the kernel-side USB claim.
+    ///
+    /// The manager is unscheduled + closed BEFORE the device: the manager owns the
+    /// device match and keeps the device reference alive, so tearing it down first
+    /// is the safer IOKit ordering (no callbacks can fire against a device we are
+    /// about to close).
     private func closeDevice() {
-        if let device = hidDevice {
-            IOHIDDeviceClose(device, IOOptionBits(kIOHIDOptionsTypeNone))
-            hidDevice = nil
-        }
         if let manager = manager {
             IOHIDManagerUnscheduleFromRunLoop(manager, CFRunLoopGetCurrent(), CFRunLoopMode.defaultMode.rawValue)
             IOHIDManagerClose(manager, IOOptionBits(kIOHIDOptionsTypeNone))
             self.manager = nil
+        }
+        if let device = hidDevice {
+            IOHIDDeviceClose(device, IOOptionBits(kIOHIDOptionsTypeNone))
+            hidDevice = nil
         }
         isConnected = false
     }
@@ -149,12 +158,20 @@ public final class MSIDevice {
     ///
     /// - Returns: `.success(())` on success; `.failure(.deviceNotFound)` if no
     ///   monitor is connected; `.failure(.payloadUnavailable)` if the command's
-    ///   payload is not yet known; `.failure(.sendFailed(_))` on IOKit error.
+    ///   payload is not yet known; `.failure(.sendFailed(_))` on IOKit error
+    ///   (including `kIOReturnNotOpen`/`kIOReturnNotPermitted` if both the first
+    ///   attempt and the single reopen-and-retry fail).
     @discardableResult
     public func send(_ command: Command) -> Result<Void, MSIError> {
         guard let bytes = command.payload else {
             return .failure(.payloadUnavailable)
         }
+
+        // Serialise the whole locate-and-send sequence: the `hidDevice == nil`
+        // check followed by `locateDevice()` is a TOCTOU window — without the lock
+        // two concurrent callers could both locate/open and leak a handle.
+        lock.lock()
+        defer { lock.unlock() }
 
         // Locate the device if we do not currently hold a reference.
         if hidDevice == nil {

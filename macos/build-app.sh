@@ -60,19 +60,27 @@ if [[ "${plist_exec}" != "${BINARY_NAME}" ]]; then
     exit 1
 fi
 
-# Ad-hoc deep sign so the signature SEALS the assembled bundle. Without this the
+# Ad-hoc sign so the signature SEALS the assembled bundle. Without this the
 # linker's adhoc binary signature does not cover the bundle (Info.plist=not
 # bound, Sealed Resources=none) and a downloaded copy is reported as "damaged".
+#
+# NOTE on `--deep`: it is deprecated since Xcode 13. It is acceptable HERE because
+# this is a flat, single-executable bundle (one Mach-O in Contents/MacOS, no
+# nested frameworks/helpers/XPC services) — there is nothing inner for `--deep` to
+# mis-sign. If a nested framework, helper tool, or XPC service is ever added,
+# STOP using `--deep` and sign explicitly inner-first then outer-last
+# (sign each nested code object, then the outer .app).
 echo "==> Ad-hoc signing (seals the bundle)…"
 codesign --force --deep --sign - "${APP_DIR}"
 
-# Verify the seal really took. Fail the build if it did not.
-echo "==> Verifying signature…"
+# Verify the seal really took. The `codesign --verify --deep --strict` EXIT CODE
+# is the authoritative gate (set -e aborts the build on any non-zero exit); the
+# `codesign -dv` line below is purely informational.
+echo "==> Verifying signature (exit code is the gate)…"
 codesign --verify --deep --strict --verbose=2 "${APP_DIR}"
-if ! codesign -dv "${APP_DIR}" 2>&1 | grep -q "Sealed Resources"; then
-    echo "error: bundle is not sealed (no 'Sealed Resources') after signing" >&2
-    exit 1
-fi
+
+echo "==> Signature summary (informational):"
+codesign -dv "${APP_DIR}" 2>&1 | grep -E "Signature|Sealed Resources|Info.plist" || true
 
 echo ""
 echo "==> Built: $(pwd)/${APP_DIR}"

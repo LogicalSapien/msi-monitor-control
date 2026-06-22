@@ -108,6 +108,8 @@ every version tag. No build tools required — just download and run.
    open-source and MIT-licensed — you can read every line in this repository. The
    "damaged" message does not mean the file is corrupt; it is macOS refusing to
    run a quarantined, unsigned app, and `xattr` simply removes that quarantine.
+   (`-r` recurses into the bundle; it is technically redundant when the quarantine
+   flag is only on the `.app` root, but it is harmless and a useful safety net.)
 
    The app *is* ad-hoc signed, so on many setups you can instead just
    **right-click** the `.app` → **Open** → **Open**. If that still reports
