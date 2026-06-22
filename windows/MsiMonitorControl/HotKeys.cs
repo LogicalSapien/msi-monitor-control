@@ -26,8 +26,14 @@ namespace MsiMonitorControl;
 ///   Ctrl+Alt+O = PBP Off
 ///   Ctrl+Alt+K = KVM → USB-C
 ///   Ctrl+Alt+U = KVM → Upstream
+///   Ctrl+Alt+A = KVM → Auto      (reserved/parked — NOT registered until KvmAuto has a payload)
 ///   Ctrl+Alt+C = Input → Type-C
 ///   Ctrl+Alt+D = Input → DP
+///
+/// Only chords whose command is currently available (<see cref="Command.IsAvailable"/>)
+/// are registered. Commands with UNKNOWN payloads (PBP On/Off, KVM Auto) are skipped so
+/// they never claim a dead chord — mirroring the macOS app's availability gating. The A
+/// chord is reserved for KVM Auto but stays free until its payload is reverse-engineered.
 /// </summary>
 internal sealed class HotKeys : IMessageFilter, IDisposable
 {
@@ -42,6 +48,7 @@ internal sealed class HotKeys : IMessageFilter, IDisposable
     private const uint VkO = 0x4F;
     private const uint VkU = 0x55;
     private const uint VkK = 0x4B;
+    private const uint VkA = 0x41;
     private const uint VkC = 0x43;
     private const uint VkD = 0x44;
 
@@ -67,8 +74,9 @@ internal sealed class HotKeys : IMessageFilter, IDisposable
         (HotkeyIdBase + 2, VkO, 'O', CommandKind.PbpOff),
         (HotkeyIdBase + 3, VkK, 'K', CommandKind.KvmUsbC),
         (HotkeyIdBase + 4, VkU, 'U', CommandKind.KvmUpstream),
-        (HotkeyIdBase + 5, VkC, 'C', CommandKind.InputTypeC),
-        (HotkeyIdBase + 6, VkD, 'D', CommandKind.InputDp),
+        (HotkeyIdBase + 5, VkA, 'A', CommandKind.KvmAuto),
+        (HotkeyIdBase + 6, VkC, 'C', CommandKind.InputTypeC),
+        (HotkeyIdBase + 7, VkD, 'D', CommandKind.InputDp),
     };
 
     /// <summary>
@@ -89,6 +97,13 @@ internal sealed class HotKeys : IMessageFilter, IDisposable
         var failed = new List<string>();
         foreach (var (id, vk, key, command) in Bindings)
         {
+            // Only register chords for commands with a known payload. Commands that are
+            // unavailable (PBP On/Off, KVM Auto — UNKNOWN payloads) would otherwise claim a
+            // global chord that does nothing; skip them so the chord stays free until the
+            // payload is reverse-engineered. Mirrors the macOS app's availability gating.
+            if (!Command.IsAvailable(command))
+                continue;
+
             // hWnd = IntPtr.Zero registers a thread-level hotkey: WM_HOTKEY is posted to
             // this thread's message queue and seen by the message filter below.
             if (RegisterHotKey(IntPtr.Zero, id, ModCtrl | ModAlt, vk))

@@ -33,18 +33,39 @@ public class CommandTests
         0x00, 0x00, 0x00, 0x00, 0x00,
     };
 
+    // KVM switching — feature 0x38 0x3E. Byte-identical to macOS Command.swift.
+    private static readonly byte[] ExpectedKvmUsbC =
+    {
+        0x01, 0x35, 0x62, 0x30, 0x30, 0x38, 0x3E, 0x30, 0x30, 0x30, 0x30, 0x0D,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00,
+    };
+
+    private static readonly byte[] ExpectedKvmUpstream =
+    {
+        0x01, 0x35, 0x62, 0x30, 0x30, 0x38, 0x3E, 0x30, 0x30, 0x30, 0x31, 0x0D,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00,
+    };
+
     // -------------------------------------------------------------------------
     // Enum shape
     // -------------------------------------------------------------------------
 
     [Fact]
-    public void AllSixCommandsExist()
+    public void AllCasesCoversEveryEnumMember()
     {
-        Assert.Equal(6, Command.AllCases.Count);
+        // No hardcoded count — adding a CommandKind shouldn't silently break this; the
+        // exhaustive membership test below pins down the exact set.
+        Assert.Equal(Enum.GetValues<CommandKind>().Length, Command.AllCases.Count);
     }
 
     [Fact]
-    public void AllCasesCoversAllSixKinds()
+    public void AllCasesCoversAllSevenKinds()
     {
         var expected = new[]
         {
@@ -52,6 +73,7 @@ public class CommandTests
             CommandKind.PbpOff,
             CommandKind.KvmUsbC,
             CommandKind.KvmUpstream,
+            CommandKind.KvmAuto,
             CommandKind.InputTypeC,
             CommandKind.InputDp,
         };
@@ -115,18 +137,66 @@ public class CommandTests
     }
 
     // -------------------------------------------------------------------------
+    // KVM payloads — feature 0x38 0x3E, byte-identical to macOS Command.swift
+    // -------------------------------------------------------------------------
+
+    [Fact]
+    public void KvmUsbCPayloadMatchesProtocol()
+    {
+        Assert.Equal(ExpectedKvmUsbC, Command.PayloadFor(CommandKind.KvmUsbC));
+    }
+
+    [Fact]
+    public void KvmUpstreamPayloadMatchesProtocol()
+    {
+        Assert.Equal(ExpectedKvmUpstream, Command.PayloadFor(CommandKind.KvmUpstream));
+    }
+
+    [Fact]
+    public void KvmPayloadsAre53Bytes()
+    {
+        Assert.Equal(53, Command.PayloadFor(CommandKind.KvmUsbC).Length);
+        Assert.Equal(53, Command.PayloadFor(CommandKind.KvmUpstream).Length);
+    }
+
+    [Fact]
+    public void KvmUsbCAndUpstreamDifferOnlyAtByte10()
+    {
+        var usbC     = Command.PayloadFor(CommandKind.KvmUsbC);
+        var upstream = Command.PayloadFor(CommandKind.KvmUpstream);
+
+        // Byte 10 is the KVM position: 0x30 = USB-C (pos 0), 0x31 = Upstream (pos 1).
+        // TODO(verify-on-hardware): mapping unconfirmed — see docs/PROTOCOL.md §KVM.
+        Assert.Equal(0x30, usbC[10]);
+        Assert.Equal(0x31, upstream[10]);
+
+        // The feature code lives at bytes[5],[6] and must be the KVM feature 0x38 0x3E
+        // (the input feature uses 0x35 0x30 at those same two indices — note 0x35 also
+        // appears at byte[1] as the fixed header, which is unrelated to the feature code).
+        Assert.Equal(0x38, usbC[5]);
+        Assert.Equal(0x3E, usbC[6]);
+
+        // All other bytes must be identical.
+        for (int i = 0; i < usbC.Length; i++)
+        {
+            if (i == 10) continue;
+            Assert.Equal(usbC[i], upstream[i]);
+        }
+    }
+
+    // -------------------------------------------------------------------------
     // UNKNOWN payloads — must throw, never invent bytes
     // -------------------------------------------------------------------------
 
     [Theory]
     [InlineData(CommandKind.PbpOn)]
     [InlineData(CommandKind.PbpOff)]
-    [InlineData(CommandKind.KvmUsbC)]
-    [InlineData(CommandKind.KvmUpstream)]
+    [InlineData(CommandKind.KvmAuto)]
     public void PayloadFor_ThrowsNotImplemented_ForUnknownPayloads(CommandKind command)
     {
-        // Payloads for PBP and KVM are UNKNOWN — see docs/PROTOCOL.md §"What is NOT known".
-        // The correct behaviour is to throw rather than send invented bytes to the monitor.
+        // PBP On/Off and the third KVM mode (Auto) are UNKNOWN — see docs/PROTOCOL.md
+        // §"What is NOT known". The correct behaviour is to throw rather than send
+        // invented bytes to the monitor.
         Assert.Throws<NotImplementedException>(() => Command.PayloadFor(command));
     }
 
@@ -135,12 +205,13 @@ public class CommandTests
     // -------------------------------------------------------------------------
 
     [Theory]
-    [InlineData(CommandKind.InputTypeC, true)]
-    [InlineData(CommandKind.InputDp,    true)]
-    [InlineData(CommandKind.PbpOn,      false)]
-    [InlineData(CommandKind.PbpOff,     false)]
-    [InlineData(CommandKind.KvmUsbC,    false)]
-    [InlineData(CommandKind.KvmUpstream, false)]
+    [InlineData(CommandKind.InputTypeC,  true)]
+    [InlineData(CommandKind.InputDp,     true)]
+    [InlineData(CommandKind.KvmUsbC,     true)]
+    [InlineData(CommandKind.KvmUpstream, true)]
+    [InlineData(CommandKind.PbpOn,       false)]
+    [InlineData(CommandKind.PbpOff,      false)]
+    [InlineData(CommandKind.KvmAuto,     false)]
     public void IsAvailable_ReflectsProtocolMdKnowledge(CommandKind command, bool expected)
     {
         Assert.Equal(expected, Command.IsAvailable(command));

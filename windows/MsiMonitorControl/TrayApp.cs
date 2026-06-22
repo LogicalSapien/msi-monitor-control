@@ -6,9 +6,10 @@ namespace MsiMonitorControl;
 /// System-tray application shell. Hosts a <see cref="NotifyIcon"/> with a context
 /// menu for all monitor actions and wires up Win32 global hotkeys via <see cref="HotKeys"/>.
 ///
-/// Actions with UNKNOWN payloads (PBP, KVM — see docs/PROTOCOL.md) appear greyed
-/// out in the menu and are excluded from hotkey registration until their payloads
-/// are confirmed via hardware reverse-engineering.
+/// Actions with UNKNOWN payloads (PBP On/Off and KVM Auto — see docs/PROTOCOL.md)
+/// appear greyed out in the menu and are excluded from hotkey registration until their
+/// payloads are confirmed via hardware reverse-engineering. Input switching and KVM
+/// USB-C/Upstream have confirmed payloads and are live.
 /// </summary>
 internal sealed class TrayApp : ApplicationContext
 {
@@ -58,6 +59,7 @@ internal sealed class TrayApp : ApplicationContext
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add(MakeItem("KVM → USB-C",    CommandKind.KvmUsbC,   "Ctrl+Alt+K"));
         menu.Items.Add(MakeItem("KVM → Upstream", CommandKind.KvmUpstream, "Ctrl+Alt+U"));
+        menu.Items.Add(MakeItem("KVM → Auto",     CommandKind.KvmAuto,   "Ctrl+Alt+A"));
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add(MakeItem("Input → Type-C", CommandKind.InputTypeC, "Ctrl+Alt+C"));
         menu.Items.Add(MakeItem("Input → DP",     CommandKind.InputDp,    "Ctrl+Alt+D"));

@@ -27,7 +27,10 @@ public class MsiDeviceTests
     public void Send_ReturnsDeviceNotFound_WhenNoMonitorAttached(CommandKind command)
     {
         var device = new MsiDevice();
-        // VID/PID are 0x0000 placeholders until PROTOCOL.md lands — no device will match.
+        // In CI (windows-latest) no MD342CQP is attached, so no device matches VID/PID.
+        // Send short-circuits on the null device before PayloadFor is reached, so commands
+        // with UNKNOWN payloads (PBP On/Off) still return DeviceNotFound here — the throwing
+        // path itself is covered by CommandTests.PayloadFor_ThrowsNotImplemented_ForUnknownPayloads.
         var result = device.Send(command);
         Assert.Equal(MsiResult.DeviceNotFound, result);
     }
