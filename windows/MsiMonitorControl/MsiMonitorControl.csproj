@@ -9,8 +9,16 @@
     <AssemblyName>MsiMonitorControl</AssemblyName>
     <RootNamespace>MsiMonitorControl</RootNamespace>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-    <!-- Suppress default application icon requirement -->
-    <ApplicationIcon />
+  </PropertyGroup>
+
+  <!--
+    Use the custom logo (assets/icon.ico) as the application/tray icon once the
+    msi-logo teammate commits it. Guarded by Exists() so the build stays green while
+    the file is still pending — remove the condition once icon.ico is committed if a
+    hard failure-on-missing is preferred.
+  -->
+  <PropertyGroup Condition="Exists('..\..\assets\icon.ico')">
+    <ApplicationIcon>..\..\assets\icon.ico</ApplicationIcon>
   </PropertyGroup>
 
   <ItemGroup>

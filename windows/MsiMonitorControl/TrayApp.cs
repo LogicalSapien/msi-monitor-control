@@ -23,13 +23,23 @@ internal sealed class TrayApp : ApplicationContext
         _trayIcon = new NotifyIcon
         {
             Text    = "MSI Monitor Control",
-            Icon    = SystemIcons.Application,
+            Icon    = LoadAppIcon(),
             Visible = true,
         };
 
         _trayIcon.ContextMenuStrip = BuildMenu();
 
         _hotKeys = new HotKeys(OnCommand);
+
+        // If any hotkey could not be bound (e.g. already owned by another app), tell the
+        // user on startup rather than letting that chord fail silently.
+        if (_hotKeys.FailedChords.Count > 0)
+        {
+            ShowBalloon(
+                $"Some shortcuts could not be registered: {string.Join(", ", _hotKeys.FailedChords)}. "
+                    + "Another app may already use them.",
+                ToolTipIcon.Warning);
+        }
 
         // Refresh device list on tray icon double-click.
         _trayIcon.DoubleClick += (_, _) =>
@@ -43,14 +53,14 @@ internal sealed class TrayApp : ApplicationContext
     {
         var menu = new ContextMenuStrip();
 
-        menu.Items.Add(MakeItem("PBP On",         CommandKind.PbpOn));
-        menu.Items.Add(MakeItem("PBP Off",         CommandKind.PbpOff));
+        menu.Items.Add(MakeItem("PBP On",         CommandKind.PbpOn,     "Ctrl+Alt+P"));
+        menu.Items.Add(MakeItem("PBP Off",         CommandKind.PbpOff,    "Ctrl+Alt+O"));
         menu.Items.Add(new ToolStripSeparator());
-        menu.Items.Add(MakeItem("KVM → USB-C",    CommandKind.KvmUsbC));
-        menu.Items.Add(MakeItem("KVM → Upstream", CommandKind.KvmUpstream));
+        menu.Items.Add(MakeItem("KVM → USB-C",    CommandKind.KvmUsbC,   "Ctrl+Alt+U"));
+        menu.Items.Add(MakeItem("KVM → Upstream", CommandKind.KvmUpstream, "Ctrl+Alt+K"));
         menu.Items.Add(new ToolStripSeparator());
-        menu.Items.Add(MakeItem("Input → Type-C", CommandKind.InputTypeC));
-        menu.Items.Add(MakeItem("Input → DP",     CommandKind.InputDp));
+        menu.Items.Add(MakeItem("Input → Type-C", CommandKind.InputTypeC, "Ctrl+Alt+T"));
+        menu.Items.Add(MakeItem("Input → DP",     CommandKind.InputDp,    "Ctrl+Alt+D"));
         menu.Items.Add(new ToolStripSeparator());
 
         var exitItem = new ToolStripMenuItem("Exit");
@@ -60,12 +70,16 @@ internal sealed class TrayApp : ApplicationContext
         return menu;
     }
 
-    private ToolStripMenuItem MakeItem(string label, CommandKind command)
+    private ToolStripMenuItem MakeItem(string label, CommandKind command, string shortcut)
     {
         var available = Command.IsAvailable(command);
         var item = new ToolStripMenuItem(label)
         {
             Enabled = available,
+            // Shows the global hotkey right-aligned in grey, e.g. "Input → DP   Ctrl+Alt+D".
+            // This is display-only — the actual binding is done by HotKeys.
+            ShowShortcutKeys = true,
+            ShortcutKeyDisplayString = shortcut,
             ToolTipText = available
                 ? null
                 : "Payload unknown — see docs/PROTOCOL.md for reverse-engineering steps",
@@ -87,6 +101,31 @@ internal sealed class TrayApp : ApplicationContext
             ShowBalloon("Failed to send command to monitor.", ToolTipIcon.Error);
         }
         // On success: silent — no notification is the expected behaviour.
+    }
+
+    /// <summary>
+    /// Returns the application's own icon (the custom logo embedded via the csproj
+    /// <c>&lt;ApplicationIcon&gt;</c>) so the tray shows the brand mark rather than a
+    /// generic icon — which also helps the unsigned build look less like malware.
+    /// Falls back to the system application icon if extraction fails.
+    /// </summary>
+    private static Icon LoadAppIcon()
+    {
+        try
+        {
+            var exePath = Environment.ProcessPath;
+            if (!string.IsNullOrEmpty(exePath))
+            {
+                var icon = Icon.ExtractAssociatedIcon(exePath);
+                if (icon is not null)
+                    return icon;
+            }
+        }
+        catch
+        {
+            // Fall through to the system icon below.
+        }
+        return SystemIcons.Application;
     }
 
     private void ShowBalloon(string message, ToolTipIcon icon)

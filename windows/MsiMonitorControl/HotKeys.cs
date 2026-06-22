@@ -7,9 +7,19 @@ namespace MsiMonitorControl;
 /// <summary>
 /// Registers and manages Win32 global hotkeys via <c>RegisterHotKey</c>.
 ///
-/// Owns its own message-only window (created via <see cref="NativeWindow.CreateHandle"/>)
-/// so it has a real HWND to receive <c>WM_HOTKEY</c> messages — <see cref="NotifyIcon"/>
-/// has no window handle of its own, so it cannot be used for this.
+/// Hotkeys are registered <b>thread-level</b> (<c>hWnd = IntPtr.Zero</c>): Windows then
+/// posts <c>WM_HOTKEY</c> to the message queue of the thread that called
+/// <c>RegisterHotKey</c>. We catch it with an <see cref="IMessageFilter"/> attached via
+/// <see cref="Application.AddMessageFilter"/>, so every message pumped by
+/// <c>Application.Run</c> on the UI thread is inspected.
+///
+/// This replaces an earlier message-only window (<c>HWND_MESSAGE</c>) approach, which did
+/// NOT reliably receive <c>WM_HOTKEY</c> — message-only windows are excluded from the
+/// normal message pump used by the tray <see cref="ApplicationContext"/>, so the hotkeys
+/// fired on macOS but did nothing on Windows. Thread-level hotkeys + a message filter
+/// deliver the message to the same loop that runs the tray icon.
+///
+/// MUST be constructed on the UI (STA) thread that calls <c>Application.Run</c>.
 ///
 /// Default hotkeys (Ctrl+Alt+*):
 ///   Ctrl+Alt+P = PBP On
@@ -19,13 +29,9 @@ namespace MsiMonitorControl;
 ///   Ctrl+Alt+T = Input → Type-C
 ///   Ctrl+Alt+D = Input → DP
 /// </summary>
-internal sealed class HotKeys : NativeWindow, IDisposable
+internal sealed class HotKeys : IMessageFilter, IDisposable
 {
     private const int WmHotkey = 0x0312;
-
-    // HWND_MESSAGE: parent value that creates a message-only window
-    // (invisible, non-interactive — exists purely to receive WM_HOTKEY).
-    private const int HwndMessage = -3;
 
     // Win32 modifier flags
     private const uint ModAlt  = 0x0001;
@@ -46,63 +52,77 @@ internal sealed class HotKeys : NativeWindow, IDisposable
     private static extern bool UnregisterHotKey(IntPtr hWnd, int id);
 
     private readonly Action<CommandKind> _onCommand;
+    private readonly List<int> _registeredIds = new();
     private bool _disposed;
 
-    private static readonly (int Id, uint Vk, CommandKind Command)[] Bindings =
+    private static readonly (int Id, uint Vk, char Key, CommandKind Command)[] Bindings =
     {
-        (1, VkP, CommandKind.PbpOn),
-        (2, VkO, CommandKind.PbpOff),
-        (3, VkU, CommandKind.KvmUsbC),
-        (4, VkK, CommandKind.KvmUpstream),
-        (5, VkT, CommandKind.InputTypeC),
-        (6, VkD, CommandKind.InputDp),
+        (1, VkP, 'P', CommandKind.PbpOn),
+        (2, VkO, 'O', CommandKind.PbpOff),
+        (3, VkU, 'U', CommandKind.KvmUsbC),
+        (4, VkK, 'K', CommandKind.KvmUpstream),
+        (5, VkT, 'T', CommandKind.InputTypeC),
+        (6, VkD, 'D', CommandKind.InputDp),
     };
 
     /// <summary>
-    /// Initialises a message-only window and registers all hotkeys against it.
+    /// Chords (e.g. "Ctrl+Alt+D") that failed to register, for the caller to surface
+    /// to the user. Empty when all registrations succeeded.
+    /// </summary>
+    public IReadOnlyList<string> FailedChords { get; }
+
+    /// <summary>
+    /// Registers all hotkeys thread-level and installs the message filter.
+    /// Call on the UI thread before/at <c>Application.Run</c>.
     /// </summary>
     /// <param name="onCommand">Callback invoked on the UI thread when a hotkey fires.</param>
     public HotKeys(Action<CommandKind> onCommand)
     {
         _onCommand = onCommand;
 
-        // Create a message-only window (HWND_MESSAGE parent) to receive WM_HOTKEY.
-        // It is never shown and has no UI; it exists purely to own the hotkeys.
-        var cp = new CreateParams
+        var failed = new List<string>();
+        foreach (var (id, vk, key, command) in Bindings)
         {
-            Caption = "MsiMonitorControlHotKeys",
-            Parent = new IntPtr(HwndMessage),
-        };
-        CreateHandle(cp);
-
-        foreach (var (id, vk, command) in Bindings)
-        {
-            if (!RegisterHotKey(Handle, id, ModCtrl | ModAlt, vk))
+            // hWnd = IntPtr.Zero registers a thread-level hotkey: WM_HOTKEY is posted to
+            // this thread's message queue and seen by the message filter below.
+            if (RegisterHotKey(IntPtr.Zero, id, ModCtrl | ModAlt, vk))
             {
-                // A chord already owned by another process fails here. Don't crash —
-                // just record it so the failure isn't silent. The other hotkeys still bind.
+                _registeredIds.Add(id);
+            }
+            else
+            {
+                // Most common cause: the chord is already owned by another process.
+                // Ctrl+Alt can also be swallowed where it maps to AltGr on some layouts.
                 var err = Marshal.GetLastWin32Error();
-                Debug.WriteLine(
-                    $"[HotKeys] Failed to register Ctrl+Alt+{(char)vk} for {command} (Win32 error {err}).");
+                var chord = $"Ctrl+Alt+{key}";
+                failed.Add(chord);
+                Debug.WriteLine($"[HotKeys] Failed to register {chord} for {command} (Win32 error {err}).");
             }
         }
+
+        FailedChords = failed;
+        Application.AddMessageFilter(this);
     }
 
-    protected override void WndProc(ref Message m)
+    /// <summary>
+    /// Inspects every message pumped on the UI thread; fires the command on WM_HOTKEY.
+    /// </summary>
+    public bool PreFilterMessage(ref Message m)
     {
         if (m.Msg == WmHotkey)
         {
             var id = m.WParam.ToInt32();
-            foreach (var (bindId, _, command) in Bindings)
+            Debug.WriteLine($"[HotKeys] WM_HOTKEY received (id={id}).");
+            foreach (var (bindId, _, _, command) in Bindings)
             {
                 if (bindId == id)
                 {
                     _onCommand(command);
-                    break;
+                    return true; // handled — don't propagate further
                 }
             }
         }
-        base.WndProc(ref m);
+        return false;
     }
 
     public void Dispose()
@@ -110,12 +130,9 @@ internal sealed class HotKeys : NativeWindow, IDisposable
         if (_disposed) return;
         _disposed = true;
 
-        if (Handle != IntPtr.Zero)
-        {
-            foreach (var (id, _, _) in Bindings)
-                UnregisterHotKey(Handle, id);
-        }
-
-        DestroyHandle();
+        Application.RemoveMessageFilter(this);
+        foreach (var id in _registeredIds)
+            UnregisterHotKey(IntPtr.Zero, id);
+        _registeredIds.Clear();
     }
 }
