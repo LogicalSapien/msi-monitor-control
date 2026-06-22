@@ -11,6 +11,10 @@ namespace MsiMonitorControl.Tests;
 /// </summary>
 public class EdgeSwitchTests
 {
+    // Local alias so the test bodies can use the short name; mirrors the public
+    // constant on EdgeSwitchTracker (the dwell-suppression window in ms).
+    private const int DwellMs = EdgeSwitchTracker.DwellMs;
+
     // =========================================================================
     // Input → KVM mapping (§4.2)
     // =========================================================================
