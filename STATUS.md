@@ -4,9 +4,26 @@
 
 ## Current focus
 
-Phase 1 code complete. Both teammates done. Awaiting CI green + human smoke test.
-- **msi-mac** — Track A (scaffold), Track B (macOS app), `docs/PROTOCOL.md`, D-macos CI: **COMPLETE** (committed 2026-06-22).
+Phase 1 code complete + post-MVP hardening. Awaiting CI green + human smoke test.
+- **msi-mac** — Track A (scaffold), Track B (macOS app), `docs/PROTOCOL.md`, D-macos CI: **COMPLETE**.
+  Post-MVP: .app bundle packaging, resource-leak fixes, KVM payloads wired in (2026-06-22).
 - **msi-windows** — Track C (Windows app) + Track D windows CI: **COMPLETE** (committed 2026-06-22).
+
+### Post-MVP work (msi-mac, 2026-06-22)
+
+| Item | Commit | Notes |
+|:-----|:-------|:------|
+| `.app` bundle packaging | 2331fc7 | `macos/build-app.sh` → `build/MSIMonitorControl.app`. LSUIElement bundle, unsigned (Phase 1). Activation policy moved to `NSApplicationDelegateAdaptor` (fixed launch crash). Verified: launches as no-Dock menu-bar item. |
+| Resource-leak fixes | ef804bf | IOHIDManager/Device now closed (was leaking USB claim); manager scheduled on run loop before `CopyDevices` (reliable enumeration); safe CFTypeID downcast; HotKeys `passRetained` balanced in deinit, `[weak self]` dispatch, OSStatus logging. |
+| KVM switching | 53c1c09 | New reference `kdar/msi-monitor-ctrl` decoded. PROTOCOL.md gains Command grammar + KVM payloads (feature `0x38 0x3E`). `kvmUSBC`/`kvmUpstream` now have payloads → live menu items + hotkeys. |
+
+**KVM Needs-decision (verify-on-hardware):**
+- Position→port mapping is UNCONFIRMED: we map USB-C=position 0, Upstream=position 1. Flip if wrong.
+- kdar uses libusb interrupt OUT; we keep HID SetReport. Bytes expected identical; confirm on hardware.
+- Possible report-ID double-counting (byte[0]=0x01 as both reportID arg and buffer[0]) — flagged in code + PROTOCOL.md.
+
+**To run the .app:** `cd macos && ./build-app.sh && open build/MSIMonitorControl.app`
+(unsigned — right-click → Open on first launch to bypass Gatekeeper).
 
 ### macOS app — msi-mac (completed this session)
 
@@ -19,8 +36,8 @@ Phase 1 code complete. Both teammates done. Awaiting CI green + human smoke test
 | B4 — MenuBarView, HotKeys, App entry point | Done | e8b7cf8 |
 | D1 — macOS CI job in build.yml | Done (windows teammate also added windows job) | 22a79a6 |
 
-**`swift build` clean. `swift test`: 15 tests, 12 passed, 2 skipped (monitor physically
-connected on dev machine — will run fully in CI), 0 failed.**
+**`swift build` / `swift build -c release` clean. `swift test`: 17 tests, 15 passed,
+2 skipped (monitor physically connected on dev machine — will run fully in CI), 0 failed.**
 
 **Key decisions:**
 - `Command.inputTypeC` and `Command.inputDP` have real 53-byte payloads from PROTOCOL.md.
