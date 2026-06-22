@@ -251,6 +251,17 @@ written-uses-option, write→read→same-model, fixture→default.
 - **NB2 stale Run path:** `LaunchAtLogin.Reconcile` compares the Run value DATA to the current
   exe and repairs a stale quoted path (not just existence).
 
+**CI follow-up fix (msi-windows, 2026-06-22 — post-commit, 1 red test):** v0.2.0 committed;
+windows-latest CI was 85/86 — `Parse_DropsMalformedBindingEntry_KeepsTheRest` failed
+(`repaired` Expected True/Actual False). Root cause: `BindingsConverter.ReadChord` was
+*pre-dropping* an empty-key chord (returning null) before `Sanitise` ran, so the malformed
+entry was removed but the `repaired` out-flag was never set. Fix (1 line): the converter now
+returns the parsed object faithfully (empty key → `Chord("")`) and `Sanitise` is the SINGLE
+point that drops malformed entries + sets `repaired`. Verified by reasoning across all 8
+Sanitise drop-branches (each sets the flag) and every `Assert.True(repaired)` test now routes
+through one. The byte-equality test PASSED in that CI run (byte-identity confirmed on real
+dotnet). Awaiting lead's follow-up push + re-run.
+
 ## Blockers
 
 - **PBP On/Off payloads** — UNKNOWN. Use `hid-probe` on hardware (sweep the feature-code

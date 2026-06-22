@@ -793,10 +793,12 @@ internal sealed class BindingsConverter : JsonConverter<Dictionary<string, List<
             }
         }
 
-        // A chord with no key is malformed; Sanitise also drops empty-mods/invalid-key, but we
-        // can short-circuit the obviously-broken case here.
-        if (string.IsNullOrWhiteSpace(key)) return null;
-        return new Chord(mods, key);
+        // Return the parsed object faithfully — INCLUDING a missing/empty key (defaulted to "").
+        // We deliberately do NOT drop the malformed-key case here: dropping must happen in
+        // HotkeyConfig.Sanitise so it can set the `repaired` out-flag (a converter has no access
+        // to it). The only thing this method drops is a non-object token (handled at the top),
+        // which can't be represented as a Chord at all.
+        return new Chord(mods, key ?? "");
     }
 
     // mods write-order using the cross-platform `option` spelling (we store `alt`; map on write).
