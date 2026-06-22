@@ -43,6 +43,21 @@ mkdir -p "${APP_DIR}/Contents/Resources"
 cp "${RELEASE_BIN}" "${APP_DIR}/Contents/MacOS/${BINARY_NAME}"
 cp "${INFO_PLIST}"  "${APP_DIR}/Contents/Info.plist"
 
+# Embed the menu-bar template icon directly in Contents/Resources — the standard,
+# code-signable location, loaded at runtime via Bundle.main. We deliberately do
+# NOT copy the SwiftPM resource bundle (.bundle): it has no Info.plist and
+# codesign refuses to seal it inside an .app ("bundle format unrecognized"). The
+# flat PDF avoids that entirely; the SwiftPM bundle is only used by `swift run`
+# during development (see loadMenuBarIcon's Bundle.module fallback). If the PDF is
+# missing the app still launches and falls back to the "display" SF Symbol.
+readonly MENUBAR_ICON_SRC="../assets/menubar-icon.pdf"
+if [[ -f "${MENUBAR_ICON_SRC}" ]]; then
+    cp "${MENUBAR_ICON_SRC}" "${APP_DIR}/Contents/Resources/menubar-icon.pdf"
+    echo "==> Embedded menu-bar template icon: ${MENUBAR_ICON_SRC}"
+else
+    echo "==> Menu-bar icon ${MENUBAR_ICON_SRC} not found — app will fall back to SF Symbol."
+fi
+
 # Embed the app icon if the asset set has landed (CFBundleIconFile is already
 # set in Info.plist). Until assets/icon.icns is committed this is skipped and
 # the app uses the default icon.

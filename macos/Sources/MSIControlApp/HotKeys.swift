@@ -4,6 +4,7 @@ import MSIControl
 // MARK: - Carbon key codes
 
 private enum KeyCode {
+    static let a: UInt32 = 0
     static let c: UInt32 = 8
     static let d: UInt32 = 2
     static let k: UInt32 = 40
@@ -31,8 +32,14 @@ private let kHotKeyModifiers: UInt32 = UInt32(
 /// | D   | Input → DisplayPort   |
 /// | K   | KVM → USB-C           |
 /// | U   | KVM → Upstream        |
+/// | A   | KVM → Auto            |
 /// | P   | PBP On                |
 /// | O   | PBP Off               |
+///
+/// Only chords whose command has a known payload (`command.isAvailable`) are
+/// registered, so unavailable actions (PBP On/Off, KVM Auto — payloads UNKNOWN)
+/// do not occupy a global chord until they are reverse-engineered. This keeps the
+/// registered hotkeys in sync with the menu, which filters on the same flag.
 final class HotKeyManager {
 
     private var hotKeyRefs: [EventHotKeyRef?] = []
@@ -49,6 +56,7 @@ final class HotKeyManager {
         (4, KeyCode.u, .kvmUpstream),
         (5, KeyCode.p, .pbpOn),
         (6, KeyCode.o, .pbpOff),
+        (7, KeyCode.a, .kvmAuto),
     ]
 
     /// Map from hotkey ID → Command, used in the event handler.
@@ -122,6 +130,11 @@ final class HotKeyManager {
         let sig: OSType = 0x4D534931  // 'MSI1' in big-endian ASCII
 
         for binding in Self.bindings {
+            // Only register chords for commands with a known payload. Unavailable
+            // commands (UNKNOWN payloads) would otherwise occupy a global chord
+            // that does nothing — keep them free until reverse-engineered.
+            guard binding.command.isAvailable else { continue }
+
             var ref: EventHotKeyRef?
             let keyID = EventHotKeyID(signature: sig, id: binding.id)
             let status = RegisterEventHotKey(

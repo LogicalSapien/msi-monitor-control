@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 36 36" width="36" height="36">
+  <!--
+    Menu-bar template icon for MSI Monitor Control.
+
+    Monochrome silhouette of the app-icon motif: a monitor (bezel + screen + stand)
+    with the two opposing "switch" arrows that signify input switching. Drawn in
+    solid black on a transparent background so macOS can treat it as a TEMPLATE
+    image (isTemplate = true) and tint it for light/dark menu bars.
+
+    Coordinate space is 36×36 (renders to ~18pt @2x). Stroke-based so it stays
+    crisp and legible at menu-bar size; no gradients, no colour — template only.
+  -->
+
+  <!-- Monitor bezel (outline) -->
+  <rect x="4.5" y="6" width="27" height="17" rx="2.5" ry="2.5"
+        fill="none" stroke="#000000" stroke-width="2"/>
+
+  <!-- Stand neck -->
+  <rect x="16.5" y="23" width="3" height="3.5" fill="#000000"/>
+  <!-- Stand base -->
+  <rect x="11" y="26.5" width="14" height="2.4" rx="1.2" ry="1.2" fill="#000000"/>
+
+  <!-- ── Switch / input-swap arrows (two opposing curved arrows on the screen) ── -->
+  <!-- Top arc: curves left→right, arrowhead pointing right -->
+  <path d="M11 16 C11 11.5 14.5 9.5 18 9.5 C21.5 9.5 25 11.5 25 16"
+        fill="none" stroke="#000000" stroke-width="2"
+        stroke-linecap="round" stroke-linejoin="round"/>
+  <polygon points="25,17.5 22,12.5 28,12.5" fill="#000000"/>
+
+  <!-- Bottom arc: curves right→left, arrowhead pointing left -->
+  <path d="M25 13 C25 17.5 21.5 19.5 18 19.5 C14.5 19.5 11 17.5 11 13"
+        fill="none" stroke="#000000" stroke-width="2"
+        stroke-linecap="round" stroke-linejoin="round"/>
+  <polygon points="11,11.5 14,16.5 8,16.5" fill="#000000"/>
+</svg>

@@ -5,7 +5,7 @@ via raw USB HID — no DDC/CI, no proprietary driver. Supports PBP toggle, KVM s
 and input switching with global hotkeys.
 
 > **Safety note:** HID payloads were obtained by reverse engineering. Use at your
-> own risk. Neither the authors nor logicalspine accept responsibility for any damage
+> own risk. Neither the authors nor LogicalSapien accept responsibility for any damage
 > caused to hardware or data.
 
 ---
@@ -146,4 +146,4 @@ Protocol reverse-engineered from
 
 ## Licence
 
-MIT © logicalspine — see [LICENSE](LICENSE).
+MIT © LogicalSapien — see [LICENSE](LICENSE).

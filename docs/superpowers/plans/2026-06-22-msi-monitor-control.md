@@ -4,14 +4,14 @@
 
 **Goal:** Build a dual-platform (macOS + Windows) menu-bar/tray utility that controls an MSI MD342CQP monitor (PBP toggle, KVM switch, input switch) via reverse-engineered USB HID commands, with global hotkeys.
 
-**Architecture:** Public monorepo `logicalspine/msi-monitor-control` with `/macos` (Swift/SwiftUI) and `/windows` (C#/HidSharp). The exact HID payloads live in `docs/PROTOCOL.md` — the single source of truth both apps send byte-identically. macOS track produces PROTOCOL.md first (it owns the reverse-engineering); Windows track consumes it.
+**Architecture:** Public monorepo `LogicalSapien/msi-monitor-control` with `/macos` (Swift/SwiftUI) and `/windows` (C#/HidSharp). The exact HID payloads live in `docs/PROTOCOL.md` — the single source of truth both apps send byte-identically. macOS track produces PROTOCOL.md first (it owns the reverse-engineering); Windows track consumes it.
 
 **Tech Stack:** Swift / SwiftUI (`MenuBarExtra`, `IOHIDManager`, Carbon hotkeys), C# (.NET 8 `net8.0-windows`, WinForms `NotifyIcon`, HidSharp, Win32 `RegisterHotKey`), GitHub Actions (build-only CI phase 1).
 
 ## Global Constraints
 
 - **British English everywhere:** docs, UI copy, code identifiers, commits. (e.g. "colour", "behaviour", "initialise".)
-- **Licence:** MIT, © logicalspine. Repo public under `logicalspine` org.
+- **Licence:** MIT, © LogicalSapien. Repo public under `LogicalSapien` org.
 - **Tested model:** MSI MD342CQP only. May-work (unverified, README must say "use at your own risk"): MS321UP, MD272QP, MD272P, MD272XP, MD272QXP, MP275QPDG, MD272UPH.
 - **Protocol:** raw USB HID (NOT DDC/CI). Reference: github.com/Phaseowner/MSI-Display-Switch (Swift, MD342CQP tested). Payloads reverse-engineered — README carries the safety note.
 - **Both apps send byte-identical HID reports** sourced from `docs/PROTOCOL.md`.
@@ -33,7 +33,7 @@
 **Interfaces:**
 - Produces: the repo skeleton and `docs/PROTOCOL.md` path that both tracks reference.
 
-- [ ] **Step 1: Create `LICENSE`** — standard MIT text, `Copyright (c) 2026 logicalspine`.
+- [ ] **Step 1: Create `LICENSE`** — standard MIT text, `Copyright (c) 2026 LogicalSapien`.
 
 - [ ] **Step 2: Create `.gitignore`** covering both platforms:
 

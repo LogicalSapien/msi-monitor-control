@@ -21,22 +21,27 @@ public enum MSIError: Error, Equatable {
 /// (`0x1462` / `0x3FA4` — from `docs/PROTOCOL.md`) and sends commands as HID
 /// output reports via `IOHIDDeviceSetReport`.
 ///
-/// ## Why `send` re-opens on demand
+/// ## Open lifecycle — why the IOHIDManager is discovery-only
 ///
-/// The device handle's open state is maintained by the IOHIDManager, which is
-/// scheduled on a run loop. In a SwiftUI `MenuBarExtra` app the device is created
-/// during early app initialisation, on whatever run-loop/thread context happens to
-/// be current then — which is not guaranteed to be the same, continuously-serviced
-/// run loop that menu actions later fire on. When that scheduling run loop is not
-/// being serviced, the kernel can let the device handle drop back to *not open*,
-/// so a later `SetReport` returns `kIOReturnNotOpen` (`0x10000003`) even though an
-/// earlier send succeeded. This was observed on real hardware: input switching
-/// worked once, then a subsequent KVM send failed with `NotOpen`.
+/// Earlier versions kept an `IOHIDManager` open for the lifetime of the device and
+/// relied on it to hold the device's open claim. The manager is scheduled on a run
+/// loop, and in a SwiftUI `MenuBarExtra` app it was created during early app
+/// initialisation on whatever run-loop/thread context happened to be current then —
+/// not the continuously-serviced run loop that menu actions later fire on. When the
+/// manager's scheduling run loop was not being serviced, the kernel let the device
+/// handle drop back to *not open*, so the SECOND `SetReport` returned
+/// `kIOReturnNotOpen` (`0x10000003`) even though the first send had succeeded. This
+/// reproduced reliably on real hardware: one input switch worked, the next failed.
 ///
-/// The robust fix is to treat the handle as potentially stale and (re)open it at
-/// send time, retrying once on a `NotOpen`/`NotPermitted` result. A standalone
-/// script that opens the device and immediately sends in the same context works
-/// reliably — this brings the app to the same footing for every send.
+/// The fix is to stop tying the open lifecycle to the manager at all. We use the
+/// manager ONLY to enumerate (match VID/PID and copy the device set), then close
+/// and unschedule it immediately. We own the located `IOHIDDevice` directly,
+/// open it ourselves at send time, and CHECK the open return before every
+/// `SetReport`. A standalone script that opens the device and sends in the same
+/// context works every time — this brings the app to that same footing. As a
+/// backstop, ANY failed send triggers exactly one full re-enumeration and retry,
+/// which also recovers from a handle invalidated by unplug/replug
+/// (`kIOReturnNoDevice`), not just a dropped open claim.
 public final class MSIDevice {
 
     // MARK: Constants (from docs/PROTOCOL.md)
@@ -45,7 +50,9 @@ public final class MSIDevice {
 
     // MARK: State
 
-    private var manager: IOHIDManager?
+    /// The located device handle that we own and open directly. The IOHIDManager
+    /// is NOT retained here — it is created, used for enumeration, then closed
+    /// inside `locateDevice()`, so nothing depends on its run-loop scheduling.
     private var hidDevice: IOHIDDevice?
 
     /// Serialises the locate-and-send block in `send` so two threads cannot both
@@ -68,16 +75,20 @@ public final class MSIDevice {
 
     // MARK: - HID device discovery
 
-    /// Locates the matching device (creating + opening the manager and finding the
-    /// device reference) but does NOT assume the device stays open — `send` opens
-    /// it on demand. Safe to call repeatedly.
+    /// Locates the matching device using a *transient* IOHIDManager, then closes
+    /// the manager so nothing depends on its run-loop scheduling. The located
+    /// `IOHIDDevice` is retained in `hidDevice` and opened on demand by `send`.
+    /// Safe to call repeatedly.
     @discardableResult
     private func locateDevice() -> Bool {
-        // Release any previously held device/manager before re-locating.
+        // Release any previously held device before re-locating.
         closeDevice()
 
+        // Create a manager solely for enumeration. It is closed before this method
+        // returns — we deliberately do NOT keep it as long-lived state, because
+        // tying the device's open claim to a manager scheduled on a (possibly dead)
+        // run loop is exactly what caused the second-send `kIOReturnNotOpen` bug.
         let manager = IOHIDManagerCreate(kCFAllocatorDefault, IOOptionBits(kIOHIDOptionsTypeNone))
-        self.manager = manager
 
         let matching: [String: Any] = [
             kIOHIDVendorIDKey:  MSIDevice.vendorID,
@@ -88,12 +99,16 @@ public final class MSIDevice {
         // Schedule on the current run loop BEFORE copying devices. Per Apple's
         // IOHIDManager docs, `IOHIDManagerCopyDevices` can return an empty set if
         // the manager has not been scheduled, even when a matching device is
-        // connected. Scheduling makes enumeration reliable.
+        // connected. Scheduling makes enumeration reliable. We unschedule + close
+        // the manager via `defer` so it never outlives this method.
         IOHIDManagerScheduleWithRunLoop(manager, CFRunLoopGetCurrent(), CFRunLoopMode.defaultMode.rawValue)
+        defer {
+            IOHIDManagerUnscheduleFromRunLoop(manager, CFRunLoopGetCurrent(), CFRunLoopMode.defaultMode.rawValue)
+            IOHIDManagerClose(manager, IOOptionBits(kIOHIDOptionsTypeNone))
+        }
 
         let openResult = IOHIDManagerOpen(manager, IOOptionBits(kIOHIDOptionsTypeNone))
         guard openResult == kIOReturnSuccess else {
-            closeDevice()
             return false
         }
 
@@ -111,12 +126,12 @@ public final class MSIDevice {
         guard CFGetTypeID(candidate) == IOHIDDeviceGetTypeID() else { return false }
         let device = unsafeDowncast(candidate as AnyObject, to: IOHIDDevice.self)
 
+        // Retain the device handle. The manager (closed by `defer`) does not keep
+        // it alive — `hidDevice` does, via ARC's bridge of the CFType.
         hidDevice = device
         isConnected = true
-
-        // Open eagerly too — the common case (run loop still alive) then needs no
-        // reopen. If the handle later goes stale, `send` reopens it.
-        IOHIDDeviceOpen(device, IOOptionBits(kIOHIDOptionsTypeNone))
+        // Open state is established at send time (`attemptSend` → `ensureDeviceOpen`),
+        // so the open and the SetReport always happen in the same call context.
         return true
     }
 
@@ -128,18 +143,10 @@ public final class MSIDevice {
         return IOHIDDeviceOpen(device, IOOptionBits(kIOHIDOptionsTypeNone))
     }
 
-    /// Closes the open device and manager, releasing the kernel-side USB claim.
-    ///
-    /// The manager is unscheduled + closed BEFORE the device: the manager owns the
-    /// device match and keeps the device reference alive, so tearing it down first
-    /// is the safer IOKit ordering (no callbacks can fire against a device we are
-    /// about to close).
+    /// Closes the open device, releasing the kernel-side USB claim. The IOHIDManager
+    /// is transient (closed inside `locateDevice`), so there is nothing else to
+    /// tear down here.
     private func closeDevice() {
-        if let manager = manager {
-            IOHIDManagerUnscheduleFromRunLoop(manager, CFRunLoopGetCurrent(), CFRunLoopMode.defaultMode.rawValue)
-            IOHIDManagerClose(manager, IOOptionBits(kIOHIDOptionsTypeNone))
-            self.manager = nil
-        }
         if let device = hidDevice {
             IOHIDDeviceClose(device, IOOptionBits(kIOHIDOptionsTypeNone))
             hidDevice = nil
@@ -151,16 +158,19 @@ public final class MSIDevice {
 
     /// Sends a command to the monitor as a HID output report.
     ///
-    /// Resilient to a stale device handle: if the handle is not currently located,
-    /// the device is re-located first; if `IOHIDDeviceSetReport` returns
-    /// `kIOReturnNotOpen`/`kIOReturnNotPermitted`, the device is re-located and the
-    /// send is retried exactly once before reporting failure.
+    /// Resilient to a stale OR invalidated device handle: if the handle is not
+    /// currently located, the device is re-located first; if the first attempt
+    /// fails for ANY reason (e.g. `kIOReturnNotOpen` from a dropped open claim, or
+    /// `kIOReturnNoDevice` after an unplug/replug invalidated the handle), discovery
+    /// is re-run and the send is retried exactly once. If re-discovery finds no
+    /// monitor, the handle is dropped and `.deviceNotFound` is returned — the app
+    /// recovers on the next call without needing a restart.
     ///
     /// - Returns: `.success(())` on success; `.failure(.deviceNotFound)` if no
-    ///   monitor is connected; `.failure(.payloadUnavailable)` if the command's
-    ///   payload is not yet known; `.failure(.sendFailed(_))` on IOKit error
-    ///   (including `kIOReturnNotOpen`/`kIOReturnNotPermitted` if both the first
-    ///   attempt and the single reopen-and-retry fail).
+    ///   monitor is connected (or it disappeared and re-discovery found nothing);
+    ///   `.failure(.payloadUnavailable)` if the command's payload is not yet known;
+    ///   `.failure(.sendFailed(_))` on a persistent IOKit error (both the first
+    ///   attempt and the single re-locate-and-retry failed).
     @discardableResult
     public func send(_ command: Command) -> Result<Void, MSIError> {
         guard let bytes = command.payload else {
@@ -182,26 +192,32 @@ public final class MSIDevice {
         }
 
         // First attempt.
-        var ret = attemptSend(bytes)
+        let ret = attemptSend(bytes)
         if ret == kIOReturnSuccess {
             return .success(())
         }
 
-        // If the handle was not open (or permission lapsed), re-locate the device
-        // — which re-opens it — and retry exactly once. This recovers from the
-        // run-loop-scheduling staleness described in the type doc.
-        if ret == kIOReturnNotOpen || ret == kIOReturnNotPermitted {
-            locateDevice()
-            guard hidDevice != nil else {
-                return .failure(.deviceNotFound)
-            }
-            ret = attemptSend(bytes)
-            if ret == kIOReturnSuccess {
-                return .success(())
-            }
+        // Backstop: ANY first-attempt failure triggers exactly one re-locate-and-
+        // retry. We deliberately do NOT filter on specific IOReturn codes — a fresh
+        // re-enumeration is the correct recovery for the whole failure class:
+        //   • kIOReturnNotOpen     — the open claim was dropped (run-loop staleness)
+        //   • kIOReturnNotPermitted — a transient permission lapse
+        //   • kIOReturnNoDevice    — the handle was invalidated (unplug/replug)
+        // `locateDevice()` first calls `closeDevice()`, which sets `hidDevice = nil`
+        // and `isConnected = false`; so if re-discovery finds nothing those stay
+        // cleared and we return `.deviceNotFound` (no stale state, no leak — the
+        // lock guards the whole sequence). Otherwise `attemptSend` opens the fresh
+        // handle and SetReports in the same call context.
+        locateDevice()
+        guard hidDevice != nil else {
+            return .failure(.deviceNotFound)
+        }
+        let retryRet = attemptSend(bytes)
+        if retryRet == kIOReturnSuccess {
+            return .success(())
         }
 
-        return .failure(.sendFailed("IOReturn 0x\(String(ret, radix: 16))"))
+        return .failure(.sendFailed("IOReturn 0x\(String(retryRet, radix: 16))"))
     }
 
     /// Ensures the device is open and performs a single `SetReport`. Returns the

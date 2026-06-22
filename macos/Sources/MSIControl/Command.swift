@@ -1,18 +1,20 @@
 /// A command that can be sent to an MSI monitor via USB HID.
 ///
-/// Six cases are defined as per the plan. Four actions have confirmed payloads
-/// sourced from `docs/PROTOCOL.md`:
+/// Seven cases are defined. Four actions have confirmed payloads sourced from
+/// `docs/PROTOCOL.md`:
 /// - `inputTypeC`, `inputDP` — from github.com/Phaseowner/MSI-Display-Switch
 /// - `kvmUSBC`, `kvmUpstream` — from github.com/kdar/msi-monitor-ctrl
 ///
-/// `pbpOn` and `pbpOff` still have `payload == nil` because their HID bytes are
-/// unknown; they are **never** shown in the menu or triggered by hotkeys until
-/// confirmed payloads are added to PROTOCOL.md.
+/// `pbpOn`, `pbpOff`, and `kvmAuto` still have `payload == nil` because their HID
+/// bytes are unknown (for `kvmAuto` the KVM feature code is known but the byte[10]
+/// value is not). They are **never** shown in the menu or triggered by hotkeys
+/// until confirmed payloads are added to PROTOCOL.md.
 public enum Command: CaseIterable {
     case pbpOn
     case pbpOff
     case kvmUSBC
     case kvmUpstream
+    case kvmAuto
     case inputTypeC
     case inputDP
 
@@ -78,6 +80,12 @@ public enum Command: CaseIterable {
                 0x00, 0x00, 0x00, 0x00, 0x00
             ]
 
+        case .kvmAuto:
+            // UNKNOWN — KVM feature 0x38 0x3E is known, but the byte[10] value for
+            // the "Auto" position has not been captured on hardware. We never
+            // invent the byte. See docs/PROTOCOL.md § KVM switching (Auto position).
+            return nil
+
         case .pbpOn, .pbpOff:
             // UNKNOWN — needs hardware reverse-engineering (sweep feature code at
             // [5],[6]). See docs/PROTOCOL.md § PBP (Picture-by-Picture).
@@ -101,6 +109,7 @@ public enum Command: CaseIterable {
         case .pbpOff:      return "PBP Off"
         case .kvmUSBC:     return "KVM → USB-C"
         case .kvmUpstream: return "KVM → Upstream"
+        case .kvmAuto:     return "KVM → Auto"
         case .inputTypeC:  return "Input → Type-C"
         case .inputDP:     return "Input → DisplayPort"
         }
@@ -118,6 +127,7 @@ public enum Command: CaseIterable {
         case .inputDP:     return "D"
         case .kvmUSBC:     return "K"
         case .kvmUpstream: return "U"
+        case .kvmAuto:     return "A"
         case .pbpOn:       return "P"
         case .pbpOff:      return "O"
         }

@@ -1,7 +1,7 @@
 # MSI Monitor Control — Design Spec
 
 **Date:** 2026-06-22
-**Repo:** `logicalspine/msi-monitor-control` (public, MIT, GitHub org `logicalspine`)
+**Repo:** `LogicalSapien/msi-monitor-control` (public, MIT, GitHub org `LogicalSapien`)
 **Status:** Approved design → implementation
 
 ## Goal
@@ -37,7 +37,7 @@ apps then send **byte-identical HID reports**.
 ```
 msi-monitor-control/
 ├── README.md            # what it is, tested vs may-work models, build/run steps, safety note
-├── LICENSE              # MIT, © logicalspine
+├── LICENSE              # MIT, © LogicalSapien
 ├── CONTRIBUTING.md      # how to build, where the protocol lives, how to add a model
 ├── .gitignore           # macOS (.build, *.xcuserdata) + Windows (bin/, obj/) + general
 ├── docs/

@@ -3,10 +3,11 @@ import XCTest
 
 final class CommandTests: XCTestCase {
 
-    // MARK: - All six cases exist
+    // MARK: - All cases exist
 
-    func testAllSixCommandsExist() {
-        XCTAssertEqual(Command.allCases.count, 6)
+    func testAllCommandsExist() {
+        // pbpOn, pbpOff, kvmUSBC, kvmUpstream, kvmAuto, inputTypeC, inputDP
+        XCTAssertEqual(Command.allCases.count, 7)
     }
 
     // MARK: - Known payloads (from docs/PROTOCOL.md)
@@ -73,6 +74,13 @@ final class CommandTests: XCTestCase {
                      "PBP Off payload is unknown — must not ship invented bytes")
     }
 
+    /// KVM → Auto: feature is known (0x38 0x3E) but byte[10] is not — payload must
+    /// stay nil until captured on hardware. Never invent the value byte.
+    func testKVMAutoPayloadIsNil() {
+        XCTAssertNil(Command.kvmAuto.payload,
+                     "KVM Auto value byte is unknown — must not ship invented bytes")
+    }
+
     // MARK: - Payload length invariant for known commands
 
     func testKnownPayloadsAre53Bytes() {
@@ -107,5 +115,16 @@ final class CommandTests: XCTestCase {
 
     func testPBPOffIsUnavailable() {
         XCTAssertFalse(Command.pbpOff.isAvailable)
+    }
+
+    func testKVMAutoIsUnavailable() {
+        XCTAssertFalse(Command.kvmAuto.isAvailable)
+    }
+
+    // MARK: - Hotkey chord display (single source of truth)
+
+    func testKVMAutoShortcutIsControlOptionCommandA() {
+        XCTAssertEqual(Command.kvmAuto.shortcutKey, "A")
+        XCTAssertEqual(Command.kvmAuto.shortcutDisplay, "⌃⌥⌘A")
     }
 }

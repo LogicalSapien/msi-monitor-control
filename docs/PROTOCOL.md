@@ -136,6 +136,7 @@ feature code `0x38 0x3E` at indices [5],[6] (see **Command grammar** below).
 |:----------------|:---------|:------------------------------------------------------|
 | KVM (pos 0)     | `0`      | `01 35 62 30 30 38 3E 30 30 30 30 0D`                 |
 | KVM (pos 1)     | `1`      | `01 35 62 30 30 38 3E 30 30 30 31 0D`                 |
+| KVM (Auto)      | `?`      | `UNKNOWN — byte[10] value not yet captured`           |
 
 **TODO confirm on hardware: which position is USB-C vs Upstream.** We do not yet
 know whether position `0` or `1` is USB-C. Our current mapping (unconfirmed) is:
@@ -144,6 +145,15 @@ know whether position `0` or `1` is USB-C. Our current mapping (unconfirmed) is:
 |:----------------|:--------------|:-----------|
 | KVM → USB-C     | `0`           | unconfirmed — flip if wrong |
 | KVM → Upstream  | `1`           | unconfirmed — flip if wrong |
+| KVM → Auto      | `UNKNOWN`     | byte[10] value not captured — see note below |
+
+> **KVM → Auto — value byte UNKNOWN.** The feature code `0x38 0x3E` is known, but
+> the byte[10] value that selects the monitor's automatic-KVM position has not been
+> captured. We do **not** invent it. During the hardware-probing session, trigger
+> "Auto" from the official app (or sweep byte[10] over `0x30`–`0x3f` with feature
+> `0x38 0x3E` held) and record the value here. Until then `Command.kvmAuto` returns
+> `payload = nil`, so it is hidden from the menu and its `⌃⌥⌘A` hotkey is not
+> registered.
 
 Full byte arrays:
 

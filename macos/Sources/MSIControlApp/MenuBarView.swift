@@ -26,19 +26,15 @@ struct MenuBarView: View {
             .padding(.horizontal)
 
         // Only show available commands. Each row shows its global hotkey chord
-        // (⌃⌥⌘ + key) next to the label so newcomers can see and learn them.
-        // The chord text comes from `command.shortcutDisplay`, the same source
-        // the Carbon hotkey registration uses, so the hint always matches.
+        // (⌃⌥⌘ + key) folded into the label text itself, e.g. "Input → Type-C  ⌃⌥⌘C".
+        // The `.menu` MenuBarExtra style renders as a native NSMenu, which DROPS a
+        // custom trailing `Text` in an HStack — so the chord must live in the
+        // button's own label string to survive. The chord comes from
+        // `command.shortcutDisplay`, the same source the Carbon hotkey registration
+        // uses, so the hint always matches the real binding.
         ForEach(Command.allCases.filter(\.isAvailable), id: \.self) { command in
-            Button {
+            Button("\(command.label)  \(command.shortcutDisplay)") {
                 deviceState.send(command)
-            } label: {
-                HStack {
-                    Text(command.label)
-                    Spacer()
-                    Text(command.shortcutDisplay)
-                        .foregroundStyle(.secondary)
-                }
             }
             .disabled(!deviceState.isConnected)
         }

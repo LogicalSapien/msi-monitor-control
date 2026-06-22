@@ -26,6 +26,11 @@ let package = Package(
             dependencies: ["MSIControl"],
             path: "Sources/MSIControlApp",
             exclude: ["Info.plist"],
+            resources: [
+                // Menu-bar template icon (monochrome, transparent). Loaded at
+                // runtime via Bundle.module and marked isTemplate so macOS tints it.
+                .copy("Resources/menubar-icon.pdf"),
+            ],
             linkerSettings: [
                 .linkedFramework("Carbon"),
             ]
