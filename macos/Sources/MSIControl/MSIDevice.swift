@@ -27,21 +27,30 @@ public final class MSIDevice {
 
     // MARK: State
 
+    private var manager: IOHIDManager?
     private var hidDevice: IOHIDDevice?
 
     /// Whether the MD342CQP is currently connected and open.
     public private(set) var isConnected: Bool = false
 
-    // MARK: Init
+    // MARK: Init / deinit
 
     public init() {
         openDevice()
     }
 
+    deinit {
+        closeDevice()
+    }
+
     // MARK: - HID device discovery
 
     private func openDevice() {
+        // Release any previously held device/manager before re-opening.
+        closeDevice()
+
         let manager = IOHIDManagerCreate(kCFAllocatorDefault, IOOptionBits(kIOHIDOptionsTypeNone))
+        self.manager = manager
 
         let matching: [String: Any] = [
             kIOHIDVendorIDKey:  MSIDevice.vendorID,
@@ -49,23 +58,57 @@ public final class MSIDevice {
         ]
         IOHIDManagerSetDeviceMatching(manager, matching as CFDictionary)
 
+        // Schedule on the current run loop BEFORE copying devices. Per Apple's
+        // IOHIDManager docs, `IOHIDManagerCopyDevices` can return an empty set if
+        // the manager has not been scheduled, even when a matching device is
+        // connected — which would make the app intermittently fail to find the
+        // monitor. Scheduling makes enumeration reliable.
+        IOHIDManagerScheduleWithRunLoop(manager, CFRunLoopGetCurrent(), CFRunLoopMode.defaultMode.rawValue)
+
         // Open the manager so it can enumerate devices.
         let openResult = IOHIDManagerOpen(manager, IOOptionBits(kIOHIDOptionsTypeNone))
-        guard openResult == kIOReturnSuccess else { return }
+        guard openResult == kIOReturnSuccess else {
+            closeDevice()
+            return
+        }
 
         // Enumerate currently connected devices.
-        guard let cfSet = IOHIDManagerCopyDevices(manager) else { return }
+        guard let cfSet = IOHIDManagerCopyDevices(manager) else {
+            return
+        }
 
-        // Bridge the CFSet to a Swift Set via NSSet.
+        // Bridge the CFSet to a Swift Set via NSSet and take the first element.
+        // We compare CFTypeIDs rather than force-casting: `anyObject()` returns
+        // `Any?`, and a force-cast (`as!`) would crash if it were ever not an
+        // IOHIDDevice. The CFTypeID check is the safe CoreFoundation idiom.
         let nsSet = cfSet as NSSet
-        guard let device = nsSet.anyObject() as! IOHIDDevice? else { return }
+        guard let object = nsSet.anyObject() else { return }
+        let candidate = object as CFTypeRef
+        guard CFGetTypeID(candidate) == IOHIDDeviceGetTypeID() else { return }
+        let device = unsafeDowncast(candidate as AnyObject, to: IOHIDDevice.self)
 
         // Open the individual device.
         let deviceOpenResult = IOHIDDeviceOpen(device, IOOptionBits(kIOHIDOptionsTypeNone))
-        guard deviceOpenResult == kIOReturnSuccess else { return }
+        guard deviceOpenResult == kIOReturnSuccess else {
+            return
+        }
 
         hidDevice = device
         isConnected = true
+    }
+
+    /// Closes the open device and manager, releasing the kernel-side USB claim.
+    private func closeDevice() {
+        if let device = hidDevice {
+            IOHIDDeviceClose(device, IOOptionBits(kIOHIDOptionsTypeNone))
+            hidDevice = nil
+        }
+        if let manager = manager {
+            IOHIDManagerUnscheduleFromRunLoop(manager, CFRunLoopGetCurrent(), CFRunLoopMode.defaultMode.rawValue)
+            IOHIDManagerClose(manager, IOOptionBits(kIOHIDOptionsTypeNone))
+            self.manager = nil
+        }
+        isConnected = false
     }
 
     // MARK: - Send
@@ -85,6 +128,13 @@ public final class MSIDevice {
             return .failure(.payloadUnavailable)
         }
 
+        // TODO(verify-on-hardware): report ID may be double-counted — byte[0]
+        // (0x01) is passed both as the reportID argument AND as the first byte of
+        // the buffer. Depending on how IOKit strips the report ID, the monitor may
+        // receive it twice. This mirrors the reference implementation
+        // (Phaseowner/MSI-Display-Switch) which works on the MD342CQP, so we keep
+        // it as-is until confirmed via a USB HID capture on real hardware.
+        // See docs/PROTOCOL.md § "Reverse-engineering notes".
         let reportID = CFIndex(bytes[0])
         let ret = IOHIDDeviceSetReport(
             device,

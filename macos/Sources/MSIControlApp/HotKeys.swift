@@ -37,6 +37,8 @@ final class HotKeyManager {
 
     private var hotKeyRefs: [EventHotKeyRef?] = []
     private var handlerRef: EventHandlerRef?
+    /// Retained `self` pointer passed to the Carbon handler; released in `deinit`.
+    private var selfPtr: UnsafeMutableRawPointer?
     private weak var deviceState: DeviceState?
 
     /// Mapping from hotkey ID to Command.
@@ -65,6 +67,12 @@ final class HotKeyManager {
         }
         for ref in hotKeyRefs {
             if let r = ref { UnregisterEventHotKey(r) }
+        }
+        // Balance the `passRetained` from `registerAll` — release after the
+        // handler is removed so the callback can no longer reach this pointer.
+        if let selfPtr = selfPtr {
+            Unmanaged<HotKeyManager>.fromOpaque(selfPtr).release()
+            self.selfPtr = nil
         }
     }
 
@@ -96,8 +104,9 @@ final class HotKeyManager {
         }
 
         let selfPtr = Unmanaged.passRetained(self).toOpaque()
+        self.selfPtr = selfPtr
         // InstallApplicationEventHandler is a C macro; call InstallEventHandler directly.
-        InstallEventHandler(
+        let installStatus = InstallEventHandler(
             GetApplicationEventTarget(),
             callback,
             1,
@@ -105,6 +114,9 @@ final class HotKeyManager {
             selfPtr,
             &handlerRef
         )
+        if installStatus != noErr {
+            print("[HotKeys] InstallEventHandler failed: OSStatus \(installStatus)")
+        }
 
         // Use a simple 4-byte OSType literal instead of the deprecated UTGetOSTypeFromString.
         let sig: OSType = 0x4D534931  // 'MSI1' in big-endian ASCII
@@ -112,7 +124,7 @@ final class HotKeyManager {
         for binding in Self.bindings {
             var ref: EventHotKeyRef?
             let keyID = EventHotKeyID(signature: sig, id: binding.id)
-            RegisterEventHotKey(
+            let status = RegisterEventHotKey(
                 binding.keyCode,
                 kHotKeyModifiers,
                 keyID,
@@ -120,6 +132,10 @@ final class HotKeyManager {
                 0,
                 &ref
             )
+            if status != noErr {
+                // Most commonly the chord is already taken by another app or by macOS.
+                print("[HotKeys] RegisterEventHotKey failed for \(binding.command): OSStatus \(status)")
+            }
             hotKeyRefs.append(ref)
         }
     }
@@ -128,8 +144,8 @@ final class HotKeyManager {
 
     private func handleHotKey(id: UInt32) {
         guard let command = Self.commandMap[id] else { return }
-        DispatchQueue.main.async {
-            self.deviceState?.send(command)
+        DispatchQueue.main.async { [weak self] in
+            self?.deviceState?.send(command)
         }
     }
 }
