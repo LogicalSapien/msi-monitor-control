@@ -35,6 +35,32 @@ final class CommandTests: XCTestCase {
         XCTAssertEqual(Command.inputDP.payload, expected)
     }
 
+    // MARK: - KVM payloads (from kdar/msi-monitor-ctrl, feature 0x38 0x3E)
+
+    /// KVM → USB-C: feature 0x38 0x3E, value 0x30 (position 0).
+    func testKVMUSBCPayloadMatchesProtocol() {
+        let expected: [UInt8] = [
+            0x01, 0x35, 0x62, 0x30, 0x30, 0x38, 0x3E, 0x30, 0x30, 0x30, 0x30, 0x0D,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00
+        ]
+        XCTAssertEqual(Command.kvmUSBC.payload, expected)
+    }
+
+    /// KVM → Upstream: feature 0x38 0x3E, value 0x31 (position 1).
+    func testKVMUpstreamPayloadMatchesProtocol() {
+        let expected: [UInt8] = [
+            0x01, 0x35, 0x62, 0x30, 0x30, 0x38, 0x3E, 0x30, 0x30, 0x30, 0x31, 0x0D,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00
+        ]
+        XCTAssertEqual(Command.kvmUpstream.payload, expected)
+    }
+
     // MARK: - Unknown payloads are nil (not invented)
 
     func testPBPOnPayloadIsNil() {
@@ -47,20 +73,10 @@ final class CommandTests: XCTestCase {
                      "PBP Off payload is unknown — must not ship invented bytes")
     }
 
-    func testKVMUSBCPayloadIsNil() {
-        XCTAssertNil(Command.kvmUSBC.payload,
-                     "KVM USB-C payload is unknown — must not ship invented bytes")
-    }
-
-    func testKVMUpstreamPayloadIsNil() {
-        XCTAssertNil(Command.kvmUpstream.payload,
-                     "KVM Upstream payload is unknown — must not ship invented bytes")
-    }
-
     // MARK: - Payload length invariant for known commands
 
     func testKnownPayloadsAre53Bytes() {
-        let knownCommands: [Command] = [.inputTypeC, .inputDP]
+        let knownCommands: [Command] = [.inputTypeC, .inputDP, .kvmUSBC, .kvmUpstream]
         for command in knownCommands {
             XCTAssertEqual(command.payload?.count, 53,
                            "\(command) payload must be 53 bytes (report ID + 52 data bytes)")
@@ -77,11 +93,19 @@ final class CommandTests: XCTestCase {
         XCTAssertTrue(Command.inputDP.isAvailable)
     }
 
+    func testKVMUSBCIsAvailable() {
+        XCTAssertTrue(Command.kvmUSBC.isAvailable)
+    }
+
+    func testKVMUpstreamIsAvailable() {
+        XCTAssertTrue(Command.kvmUpstream.isAvailable)
+    }
+
     func testPBPOnIsUnavailable() {
         XCTAssertFalse(Command.pbpOn.isAvailable)
     }
 
-    func testKVMUSBCIsUnavailable() {
-        XCTAssertFalse(Command.kvmUSBC.isAvailable)
+    func testPBPOffIsUnavailable() {
+        XCTAssertFalse(Command.pbpOff.isAvailable)
     }
 }

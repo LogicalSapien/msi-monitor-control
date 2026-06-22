@@ -30,6 +30,42 @@ confirmed tested on MD342CQP.
 
 ---
 
+## Command grammar
+
+The monitor speaks a UART-style ASCII command framed inside the HID report. This
+grammar was decoded from [kdar/msi-monitor-ctrl](https://github.com/kdar/msi-monitor-ctrl)
+(Rust) and is consistent with the input-switching payloads in
+[Phaseowner/MSI-Display-Switch](https://github.com/Phaseowner/MSI-Display-Switch).
+
+Every command is 12 meaningful bytes, zero-padded to the report size:
+
+| Index | Value           | Meaning                                              |
+|:------|:----------------|:-----------------------------------------------------|
+| 0     | `0x01`          | Report ID                                            |
+| 1     | `0x35`          | Header (fixed)                                       |
+| 2     | RW              | `0x62` (`'b'`) = write, `0x38` (`'8'`) = read        |
+| 3     | `0x30`          | Fixed                                                |
+| 4     | `0x30`          | Fixed                                                |
+| 5     | FEATURE_HI      | Feature code, high byte                              |
+| 6     | FEATURE_LO      | Feature code, low byte                               |
+| 7     | `0x30`          | Fixed                                                |
+| 8     | `0x30`          | Fixed                                                |
+| 9     | `0x30`          | Fixed                                                |
+| 10    | `0x30` + value  | Value byte (`0x30` + position, ASCII digit)          |
+| 11    | `0x0D`          | Carriage return — command terminator                 |
+
+**Known feature codes** (at indices [5],[6]):
+
+| Feature      | Code        | Values (index [10])                          |
+|:-------------|:------------|:---------------------------------------------|
+| Input source | `0x35 0x30` | `0`=HDMI1, `1`=HDMI2, `2`=DisplayPort, `3`=Type-C |
+| KVM          | `0x38 0x3E` | `0`, `1` (USB-C vs Upstream — TODO confirm)   |
+| PBP          | UNKNOWN     | almost certainly a distinct 2-byte feature code |
+
+To discover PBP, sweep the **feature-code pair** at [5],[6] (not the value byte).
+
+---
+
 ## Payloads
 
 All payloads are 64 bytes. Bytes not listed are `0x00`. The report ID (`0x01`)
@@ -70,10 +106,52 @@ Full byte arrays (64 bytes each):
 
 ### KVM switching
 
-| Action          | Payload                                         |
-|:----------------|:------------------------------------------------|
-| KVM → USB-C     | `UNKNOWN — needs hardware reverse-engineering`  |
-| KVM → Upstream  | `UNKNOWN — needs hardware reverse-engineering`  |
+Sourced from a second reference implementation,
+[kdar/msi-monitor-ctrl](https://github.com/kdar/msi-monitor-ctrl) (Rust), which
+targets the same monitor (VID `0x1462` / PID `0x3FA4`). KVM uses the 2-byte
+feature code `0x38 0x3E` at indices [5],[6] (see **Command grammar** below).
+
+| Action          | Position | Payload (12 bytes, zero-padded)                       |
+|:----------------|:---------|:------------------------------------------------------|
+| KVM (pos 0)     | `0`      | `01 35 62 30 30 38 3E 30 30 30 30 0D`                 |
+| KVM (pos 1)     | `1`      | `01 35 62 30 30 38 3E 30 30 30 31 0D`                 |
+
+**TODO confirm on hardware: which position is USB-C vs Upstream.** We do not yet
+know whether position `0` or `1` is USB-C. Our current mapping (unconfirmed) is:
+
+| Action          | Position used | Confidence |
+|:----------------|:--------------|:-----------|
+| KVM → USB-C     | `0`           | unconfirmed — flip if wrong |
+| KVM → Upstream  | `1`           | unconfirmed — flip if wrong |
+
+Full byte arrays:
+
+**KVM → USB-C (position 0):**
+```
+0x01, 0x35, 0x62, 0x30, 0x30, 0x38, 0x3E, 0x30, 0x30, 0x30, 0x30, 0x0D,
+0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+0x00, 0x00, 0x00, 0x00, 0x00
+```
+
+**KVM → Upstream (position 1):**
+```
+0x01, 0x35, 0x62, 0x30, 0x30, 0x38, 0x3E, 0x30, 0x30, 0x30, 0x31, 0x0D,
+0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+0x00, 0x00, 0x00, 0x00, 0x00
+```
+
+> **TODO verify-on-hardware: KVM via HID SetReport.** The kdar reference sends
+> these bytes over **libusb interrupt OUT** endpoints (it claims the interface and
+> detaches the kernel driver). Our app instead sends via **HID SetReport**
+> (`IOHIDDeviceSetReport` on macOS, `stream.Write` on Windows). The 12-byte payload
+> is expected to be identical; only the transport differs. Because our input
+> switching already works over HID SetReport with the same grammar, KVM very
+> likely works the same way — but this must be confirmed on real hardware. **Do
+> not switch the transport to libusb; keep HID.**
 
 ### PBP (Picture-by-Picture)
 
@@ -81,6 +159,12 @@ Full byte arrays (64 bytes each):
 |:--------|:-----------------------------------------------|
 | PBP On  | `UNKNOWN — needs hardware reverse-engineering` |
 | PBP Off | `UNKNOWN — needs hardware reverse-engineering` |
+
+PBP is **almost certainly another 2-byte feature code** at indices [5],[6] (the
+same slot that holds `0x35 0x30` for input and `0x38 0x3E` for KVM). A hardware
+probe to discover PBP should **sweep the feature-code pair** at [5],[6] — not the
+value byte at [10] — while capturing HID traffic from MSI Productivity
+Intelligence. See **Command grammar** below.
 
 ---
 
@@ -101,6 +185,18 @@ The payload structure follows an ASCII-like protocol: bytes[1..11] form the stri
 
 This is an ASCII command protocol: the report body is a text command terminated
 with `\r` (`0x0D`), zero-padded to the report size.
+
+### Open question: report-ID handling (verify on hardware)
+
+Both apps pass `byte[0]` (`0x01`) **twice**: once as the explicit report-ID
+argument to the send call (`IOHIDDeviceSetReport` on macOS, `stream.Write` on
+Windows) AND as the first byte of the buffer. Depending on how the OS HID stack
+strips the leading report ID, the monitor may receive the `0x01` byte once or
+twice. The reference implementation does the same and works on the MD342CQP, so
+the current behaviour is kept as-is. This should be confirmed with a USB HID
+capture against real hardware; if the byte is double-counted, drop the leading
+`0x01` from the buffer (keeping it only as the report-ID argument). Tracked in
+code with `// TODO(verify-on-hardware)` near the send call in both apps.
 
 ### What is NOT known (Needs-decision)
 
