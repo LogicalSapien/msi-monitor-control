@@ -28,6 +28,27 @@ confirmed tested on MD342CQP.
 | Report size  | 64 bytes (`0x40`)    | Payload is always 64 bytes; unused bytes are `0x00`   |
 | Usage page   | N/A (matched by VID/PID only) | The reference uses VID/PID matching, not usage page |
 
+### macOS: device open-state can go stale (`kIOReturnNotOpen`)
+
+On real hardware (MD342CQP, enumerates as "MSI Gaming Controller", VID `0x1462`
+PID `0x3FA4`) the following was observed: input switching worked once via the app,
+then a later send (KVM) failed with `IOReturn 0x10000003` = `kIOReturnNotOpen`.
+The identical KVM bytes sent from a standalone script (open device →
+`IOHIDDeviceSetReport` → send, in one context) returned `kIOReturnSuccess`. So the
+payload and the SetReport API path are correct; the failure was that the app's
+`IOHIDDevice` handle was no longer in an *open* state at send time.
+
+Root cause: the device's open state is maintained by the `IOHIDManager`, which is
+tied to the run loop it was scheduled on. In a SwiftUI `MenuBarExtra` app the
+device is created during early app init, on a run-loop/thread context that is not
+guaranteed to be the continuously-serviced one menu actions fire on; when that
+run loop is not serviced the kernel can drop the handle back to not-open.
+
+Fix (implemented in `MSIDevice.send`): open the device on demand at send time and,
+if `SetReport` returns `kIOReturnNotOpen`/`kIOReturnNotPermitted`, re-locate +
+re-open the device and retry the send exactly once. `IOHIDDeviceOpen` on an
+already-open device is a success no-op, so this is safe to do before every send.
+
 ---
 
 ## Command grammar
