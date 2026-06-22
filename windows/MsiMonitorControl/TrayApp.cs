@@ -40,6 +40,8 @@ internal sealed class TrayApp : ApplicationContext
         _hotKeys = new HotKeys(OnCommand, _config);
         WarnOnFailedChords();
 
+        DebugLog.Info($"Tray ready (config preset={_config.Preset}, monitor {(_device.IsConnected ? "connected" : "not found")}).");
+
         // Refresh device list on tray icon double-click.
         _trayIcon.DoubleClick += (_, _) =>
         {
@@ -66,6 +68,10 @@ internal sealed class TrayApp : ApplicationContext
         var settingsItem = new ToolStripMenuItem("Settings…");
         settingsItem.Click += (_, _) => OpenSettings();
         menu.Items.Add(settingsItem);
+
+        var logItem = new ToolStripMenuItem("Reveal debug log");
+        logItem.Click += (_, _) => DebugLog.OpenLogFolder();
+        menu.Items.Add(logItem);
 
         var exitItem = new ToolStripMenuItem("Exit");
         exitItem.Click += (_, _) => ExitApp();
@@ -111,6 +117,7 @@ internal sealed class TrayApp : ApplicationContext
         // their working hotkeys — and we must NOT write the rejected config to disk.
         if (!_hotKeys.TryReRegister(updated))
         {
+            DebugLog.Warn($"Settings: re-register rejected (conflicts: {string.Join(", ", _hotKeys.FailedChords)}) — kept previous config, not saved.");
             WarnOnFailedChords(); // names the rejected chord(s); previous bindings stay live
             return;
         }
@@ -119,12 +126,14 @@ internal sealed class TrayApp : ApplicationContext
         try
         {
             updated.Save();
+            DebugLog.Info($"Settings saved (preset={updated.Preset}, launchAtLogin={updated.LaunchAtLogin}).");
         }
         catch (Exception ex)
         {
             // Persist failed but the new hotkeys are live and match the in-memory config; the
             // file is simply stale. Surface it; keep the live state (reverting registration to a
             // config we couldn't save would be worse).
+            DebugLog.Exception("Settings: applied but save FAILED", ex);
             ShowBalloon($"Settings applied but could not be saved: {ex.Message}", ToolTipIcon.Warning);
         }
 
@@ -163,6 +172,7 @@ internal sealed class TrayApp : ApplicationContext
 
     private void OnCommand(CommandKind command)
     {
+        DebugLog.Info($"Command invoked: {command} ({Command.Label(command)}).");
         var result = _device.Send(command);
         if (result == MsiResult.DeviceNotFound)
         {
@@ -217,6 +227,7 @@ internal sealed class TrayApp : ApplicationContext
 
     private void ExitApp()
     {
+        DebugLog.SessionEnd("user quit");
         // ExitThread disposes this ApplicationContext, which routes through
         // Dispose(bool) below for cleanup.
         ExitThread();

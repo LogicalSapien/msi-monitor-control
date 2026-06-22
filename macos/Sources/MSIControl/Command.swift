@@ -1,14 +1,15 @@
 /// A command that can be sent to an MSI monitor via USB HID.
 ///
-/// Seven cases are defined. Four actions have confirmed payloads sourced from
+/// Seven cases are defined. Five actions have confirmed payloads sourced from
 /// `docs/PROTOCOL.md`:
 /// - `inputTypeC`, `inputDP` — from github.com/Phaseowner/MSI-Display-Switch
-/// - `kvmUSBC`, `kvmUpstream` — from github.com/kdar/msi-monitor-ctrl
+/// - `kvmUSBC`, `kvmUpstream`, `kvmAuto` — KVM feature 0x38 0x3E, byte[10] values
+///   HARDWARE-CONFIRMED on the MD342CQP via `tools/kvm-probe` (USB-C=0x32,
+///   Upstream=0x31, Auto=0x30).
 ///
-/// `pbpOn`, `pbpOff`, and `kvmAuto` still have `payload == nil` because their HID
-/// bytes are unknown (for `kvmAuto` the KVM feature code is known but the byte[10]
-/// value is not). They are **never** shown in the menu or triggered by hotkeys
-/// until confirmed payloads are added to PROTOCOL.md.
+/// Only `pbpOn` and `pbpOff` still have `payload == nil` because their HID bytes
+/// are unknown. They are **never** shown in the menu or triggered by hotkeys until
+/// confirmed payloads are added to PROTOCOL.md.
 public enum Command: CaseIterable {
     case pbpOn
     case pbpOff
@@ -56,22 +57,22 @@ public enum Command: CaseIterable {
                 0x00, 0x00, 0x00, 0x00, 0x00
             ]
 
-        // KVM switching — feature 0x38 0x3E. Source: kdar/msi-monitor-ctrl.
-        // TODO(verify-on-hardware): position→port mapping is UNCONFIRMED. We map
-        // USB-C to position 0 and Upstream to position 1; flip if hardware proves
-        // otherwise. Also TODO(verify-on-hardware): kdar sends over libusb
-        // interrupt OUT; we send over HID SetReport — bytes expected identical.
-        // See docs/PROTOCOL.md § KVM switching.
-        case .kvmUSBC:      // value = 0x30 (position 0)
+        // KVM switching — feature 0x38 0x3E. byte[10] selects the port.
+        // HARDWARE-CONFIRMED on the MD342CQP via tools/kvm-probe (2026-06-22):
+        //   0x30 → Auto, 0x31 → Upstream, 0x32 → USB-C  (0x33 = no change).
+        // This corrects the earlier reference-guessed mapping (USB-C was wrongly
+        // 0x30, which is actually Auto) and supplies the previously-UNKNOWN Auto
+        // value. See docs/PROTOCOL.md § KVM switching.
+        case .kvmUSBC:      // value = 0x32 (USB-C) — hardware-confirmed
             return [
-                0x01, 0x35, 0x62, 0x30, 0x30, 0x38, 0x3E, 0x30, 0x30, 0x30, 0x30, 0x0D,
+                0x01, 0x35, 0x62, 0x30, 0x30, 0x38, 0x3E, 0x30, 0x30, 0x30, 0x32, 0x0D,
                 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
                 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
                 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
                 0x00, 0x00, 0x00, 0x00, 0x00
             ]
 
-        case .kvmUpstream:  // value = 0x31 (position 1)
+        case .kvmUpstream:  // value = 0x31 (Upstream) — hardware-confirmed
             return [
                 0x01, 0x35, 0x62, 0x30, 0x30, 0x38, 0x3E, 0x30, 0x30, 0x30, 0x31, 0x0D,
                 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -80,11 +81,14 @@ public enum Command: CaseIterable {
                 0x00, 0x00, 0x00, 0x00, 0x00
             ]
 
-        case .kvmAuto:
-            // UNKNOWN — KVM feature 0x38 0x3E is known, but the byte[10] value for
-            // the "Auto" position has not been captured on hardware. We never
-            // invent the byte. See docs/PROTOCOL.md § KVM switching (Auto position).
-            return nil
+        case .kvmAuto:      // value = 0x30 (Auto) — hardware-confirmed (was UNKNOWN)
+            return [
+                0x01, 0x35, 0x62, 0x30, 0x30, 0x38, 0x3E, 0x30, 0x30, 0x30, 0x30, 0x0D,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00
+            ]
 
         case .pbpOn, .pbpOff:
             // UNKNOWN — needs hardware reverse-engineering (sweep feature code at

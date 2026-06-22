@@ -193,6 +193,8 @@ captures nothing, and Wireshark on macOS is equally useless for this use-case.
 | `hid-info` | `tools/hid-info/hid-info.swift` | Enumerate device, print HID interfaces, confirm connectivity |
 | `hid-capture` | `tools/hid-capture/hid-capture.swift` | Listen for input reports (expected: none) |
 | `hid-probe` | `tools/hid-probe/hid-probe.swift` | **Primary RE tool** — send feature-code candidates, observe monitor |
+| `kvm-probe` | `tools/kvm-probe/kvm-probe.swift` | Guided KVM byte[10]→port mapper — sends feature `0x38 0x3e`, byte[10] cycling 0x30–0x33 one per Enter, so you record which source each value selects. Mapping CONFIRMED: 0x30=Auto, 0x31=Upstream, 0x32=USB-C |
+| `kvm-send` | `tools/kvm-probe/kvm-send.swift` | Send ONE KVM position then exit (`swift … 0..3`). Locates the device fresh each run so a KVM-induced USB detach can't break a follow-up send — handy when probing one value at a time |
 
 ---
 

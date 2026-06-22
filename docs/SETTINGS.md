@@ -57,20 +57,38 @@ keymaps. (YAGNI — add later only if asked.)
 
 ### 2.1 Cross-app JSON compatibility level
 
-Both apps emit **byte-for-byte identical** JSON for the same model. Because the
-stock encoders cannot be made to agree (Swift `JSONEncoder` forces `" : "` and
-can't fix key order; C# `System.Text.Json` emits `": "` with no leading-space
-option), **each app uses a custom serialiser** to a single canonical layout. The
-exact format is specified in **§3.8 Canonical serialisation**, and the shared
-fixture `docs/fixtures/settings.example.json` IS that canonical output for the
-default config.
+Both apps use a **custom serialiser** to one canonical layout (stock encoders can't
+agree — Swift `JSONEncoder` forces `" : "` and can't fix key order; C#
+`System.Text.Json` emits `": "` with no leading-space option). The exact format is
+in **§3.8**. Two levels of guarantee:
 
-- Each writer is **deterministic** (same model → same bytes) — see §3.8.
-- A config written by either app is byte-identical to the other's for the same
-  model, which also means it loads in the other to the **same in-memory model**.
-- Contract tests (both apps): *parse fixture → model == built-in default* AND
-  *default.save() bytes == fixture bytes*. The shared-fixture byte-equality covers
-  mutual-loadability, so no separate per-platform cross-load sample is needed.
+1. **Byte-identical across apps — for platform-INDEPENDENT presets only.** Under
+   `ctrlShift` (same mods on both platforms), a config written by either app is
+   byte-for-byte identical. This is the genuine cross-app byte guarantee.
+2. **Byte-identical within a platform — for per-OS presets.** The default
+   `cmdShiftCtrl` (and `legacy`) bake platform-specific mods (mac `command`, win
+   `alt`), so their files CANNOT be byte-identical across platforms. Each app is
+   byte-identical to ITS OWN platform fixture, and the two fixtures differ only in
+   the `mods` tokens.
+
+**Mutual-loadability holds for ALL presets:** a config written by either app loads
+in the other to an equivalent in-memory model, via the option↔alt synonym (§3.4)
+and the command-drop on Windows.
+
+Fixtures (the cross-app ground truth, regenerated from each encoder):
+- `docs/fixtures/settings.example.macos.json` — default config, mac mods
+  (`["control","shift","command"]`).
+- `docs/fixtures/settings.example.windows.json` — default config, win mods
+  (`["control","alt","shift"]`).
+- `docs/fixtures/settings.example.ctrlshift.json` — **shared** default config under
+  the platform-INDEPENDENT `ctrlShift` preset (mods `["control","shift"]`). BOTH
+  apps emit this byte-for-byte; each has a `save()==this fixture` test, which is the
+  one genuine cross-app byte-identity guarantee.
+
+Contract tests (each app): *parse own fixture → model == built-in default*;
+*default.save() bytes == own platform fixture*; a `ctrlShift` config is
+platform-independent (the true cross-app byte case); and *load the OTHER platform's
+fixture → equivalent model* (proves mutual-loadability for the per-OS default).
 
 ---
 
@@ -81,7 +99,7 @@ default config.
 ```jsonc
 {
   "schemaVersion": 1,            // integer; bump on any breaking schema change
-  "preset": "hyper",             // "hyper" | "ctrlShift" | "legacy" | "custom"
+  "preset": "cmdShiftCtrl",      // "cmdShiftCtrl" | "ctrlShift" | "legacy" | "custom"
   "launchAtLogin": false,        // boolean
   "bindings": { … },             // map: actionId -> array of chords (see 3.3)
   "altGrAvoidList": { … }        // advisory data for the EU-layout warning (see 3.5)
@@ -97,12 +115,20 @@ keys fall back to built-in defaults (see §4).
 explicit per-binding modifiers only (§3.3). The preset value records which named
 scheme the bindings currently match, for the UI dropdown:
 
-| Value | Modifiers applied when selected | macOS chord | Windows chord |
-|:------|:--------------------------------|:------------|:--------------|
-| `hyper` (default) | Control + Option/Alt + Shift | ⌃⌥⇧ | Ctrl+Alt+Shift |
-| `ctrlShift` | Control + Shift | ⌃⇧ | Ctrl+Shift |
-| `legacy` | per-platform: mac Control+Option+Command, win Control+Alt | ⌃⌥⌘ | Ctrl+Alt |
-| `custom` | — (set automatically; never selectable directly) | — | — |
+| Value | Modifiers applied when selected | macOS chord | Windows chord | Per-OS? |
+|:------|:--------------------------------|:------------|:--------------|:--------|
+| `cmdShiftCtrl` (default) | per-platform: mac Control+Shift+Command, win Control+Alt+Shift | ⌃⇧⌘ | Ctrl+Alt+Shift | **yes** |
+| `ctrlShift` | Control + Shift | ⌃⇧ | Ctrl+Shift | no |
+| `legacy` | per-platform: mac Control+Option+Command, win Control+Alt | ⌃⌥⌘ | Ctrl+Alt | **yes** |
+| `custom` | — (set automatically; never selectable directly) | — | — | — |
+
+The default preset is **`cmdShiftCtrl`**. Its modifiers differ per platform — macOS
+uses Command (no Option/Alt); Windows uses Alt (no Command) — because macOS reserves
+many `⌃⌥` (Control+Option) letter chords and Command-based chords are the macOS
+convention, while Windows has no Command key. The preset KEY (`cmdShiftCtrl`) is
+shared; the displayed chord and the written `mods` are platform-specific. The
+dropdown label is derived from the platform's own mods (mac shows "Default (⌃⇧⌘)",
+Windows shows "Default (Ctrl+Alt+Shift)").
 
 **Apply-and-bake semantics.** Selecting a preset in the UI is an **action**: the
 app rewrites every binding's `mods` to that scheme's modifiers and persists the
@@ -111,22 +137,28 @@ the selected preset, the app sets `preset` to `"custom"`. This keeps a single
 source of truth (the explicit `mods` on each binding) and removes any
 preset-vs-binding merge ambiguity between the two apps.
 
-> Note on `legacy`: it is the only preset whose modifiers differ per platform
-> (mac includes Command/⌘; Windows does not have a ⌘). When `legacy` is applied,
-> each app bakes ITS platform's legacy mods. A config written on macOS as `legacy`
-> therefore stores `["control","option","command"]`; the same logical scheme on
-> Windows stores `["control","alt"]`. Both apps still read explicit mods, so this
-> is consistent — see §3.4 for the cross-platform modifier vocabulary.
+> Note on per-OS presets (`cmdShiftCtrl`, `legacy`): their modifiers differ per
+> platform (mac includes Command/⌘; Windows substitutes Alt and has no ⌘). When
+> such a preset is applied, each app bakes ITS platform's mods. The default
+> `cmdShiftCtrl` therefore stores `["control","shift","command"]` on macOS and
+> `["control","alt","shift"]` on Windows; `legacy` stores
+> `["control","option","command"]` on macOS and `["control","alt"]` on Windows.
+> (Note the canonical element order — control, option/alt, shift, command, §3.8 —
+> so Windows writes `alt` BEFORE `shift`.) Both apps still read explicit mods via
+> the option↔alt synonym, so a config written by one loads correctly in the other
+> (§2.1, §3.4). Consequently a per-OS preset's saved file is byte-identical only
+> WITHIN a platform, not across — see §2.1/§3.8.
 
 ### 3.3 `bindings` — per-action chords (full-chord model)
 
 ```jsonc
+// macOS default (cmdShiftCtrl preset); see §3.8 for the on-disk multi-line layout.
 "bindings": {
-  "inputTypeC": [ { "mods": ["control", "option", "shift"], "key": "C" } ],
-  "inputDP":    [ { "mods": ["control", "option", "shift"], "key": "D" } ],
-  "kvmUSBC":    [ { "mods": ["control", "option", "shift"], "key": "K" } ],
-  "kvmUpstream":[ { "mods": ["control", "option", "shift"], "key": "U" } ],
-  "kvmAuto":    [],                                  // empty: no payload yet → no chord
+  "inputTypeC": [ { "mods": ["control", "shift", "command"], "key": "C" } ],
+  "inputDP":    [ { "mods": ["control", "shift", "command"], "key": "D" } ],
+  "kvmUSBC":    [ { "mods": ["control", "shift", "command"], "key": "K" } ],
+  "kvmUpstream":[ { "mods": ["control", "shift", "command"], "key": "U" } ],
+  "kvmAuto":    [ { "mods": ["control", "shift", "command"], "key": "A" } ],
   "pbpOn":      [],                                  // empty: no payload yet → no chord
   "pbpOff":     []                                   // empty: no payload yet → no chord
 }
@@ -137,8 +169,8 @@ preset-vs-binding merge ambiguity between the two apps.
 - **Value = an array of chord objects.** An array (not a single object) supports
   **multiple hotkeys per action** (the add/remove-extra-hotkey feature). An empty
   array means "no hotkey for this action" — used for actions whose HID payload is
-  still UNKNOWN (`kvmAuto`, `pbpOn`, `pbpOff`), which must not occupy a chord until
-  reverse-engineered.
+  still UNKNOWN (`pbpOn`, `pbpOff`), which must not occupy a chord until
+  reverse-engineered. (`kvmAuto` is now hardware-confirmed and bound.)
 - **Chord object:** `{ "mods": [ <modifier>… ], "key": "<base key>" }`.
   - `mods`: array of canonical modifier tokens (§3.4). Order is **not** significant;
     apps compare as a set. May be empty only if a future preset allows it (none do
@@ -211,14 +243,15 @@ These string ids are the contract between the config and both apps' command enum
 | `inputDP` | `.inputDP` | `InputDp` | `D` | yes |
 | `kvmUSBC` | `.kvmUSBC` | `KvmUsbC` | `K` | yes |
 | `kvmUpstream` | `.kvmUpstream` | `KvmUpstream` | `U` | yes |
-| `kvmAuto` | `.kvmAuto` | `KvmAuto` | `A`* | no (payload UNKNOWN) |
+| `kvmAuto` | `.kvmAuto` | `KvmAuto` | `A` | yes (byte[10]=0x30, hardware-confirmed) |
 | `pbpOn` | `.pbpOn` | `PbpOn` | `P`* | no (payload UNKNOWN) |
 | `pbpOff` | `.pbpOff` | `PbpOff` | `O`* | no (payload UNKNOWN) |
 
-\* Default key is recorded for when the payload lands, but the default config ships
-these actions with an **empty bindings array** (no chord registered) — consistent
-with today's availability gating. When a payload is added, the default seed for
-that action becomes `[{mods: <preset>, key: <default>}]`.
+\* For the still-UNKNOWN PBP actions the default key is recorded for when the payload
+lands, but the default config ships them with an **empty bindings array** (no chord
+registered) — consistent with availability gating. When a payload is added, the
+default seed for that action becomes `[{mods: <preset>, key: <default>}]` (as already
+done for `kvmAuto`).
 
 ### 3.7 Derived display strings (not stored)
 
@@ -226,25 +259,25 @@ that action becomes `[{mods: <preset>, key: <default>}]`.
 the drift `shortcutKey`/`shortcutDisplay` could have. Each app builds it from a
 chord object:
 
-- macOS: glyphs in canonical order ⌃ ⌥ ⇧ ⌘ then the key, e.g. `⌃⌥⇧C`.
-- Windows: words joined by `+`, e.g. `Ctrl+Alt+Shift+C`.
+- macOS: glyphs in canonical order ⌃ ⌥ ⇧ ⌘ then the key, e.g. the default `⌃⇧⌘C`.
+- Windows: words joined by `+`, e.g. the default `Ctrl+Alt+Shift+C`.
 
 This **replaces** the hardcoded `shortcutKey`/`shortcutDisplay` on `Command`
 (Swift) and the `(key, …)` columns in the static bindings tables — those become
 **data-driven** from the loaded config (§5).
 
-### 3.8 Canonical serialisation (byte-identical across apps)
+### 3.8 Canonical serialisation
 
-Both apps emit **byte-for-byte identical** JSON for the same model. Because Swift's
-`JSONEncoder` (forces `" : "` and offers no control over key order) and C#'s
-`System.Text.Json` (emits `": "`, no leading-space option) cannot be made to agree
-via their stock options, **each app uses a custom serialiser** to this exact format.
-The single shared fixture `docs/fixtures/settings.example.json` IS this canonical
-output for the default config — it is the cross-app ground truth, regenerated from
-the encoder (not hand-formatted), and BOTH apps assert `default.save() == fixture`
-byte-for-byte. (Byte-identity also implies mutual-loadability: both apps produce AND
-parse the identical fixture, so a separate per-platform cross-load sample is
-unnecessary.)
+Both apps write to ONE canonical layout via a **custom serialiser** (Swift's
+`JSONEncoder` forces `" : "` and can't fix key order; C#'s `System.Text.Json`
+emits `": "` with no leading-space option — neither stock encoder can hit the
+canonical form, so each app hand-rolls it). The per-platform fixtures
+`docs/fixtures/settings.example.{macos,windows}.json` ARE this canonical output for
+the default config — the cross-app ground truth, regenerated from each encoder (not
+hand-formatted). Each app asserts `default.save() == its own platform fixture`
+byte-for-byte. Cross-app byte-identity holds for platform-independent presets only
+(§2.1); per-OS presets are byte-identical within a platform, with mutual-loadability
+proven by each app loading the other's fixture to an equivalent model.
 
 Canonical rules (schemaVersion 1):
 
@@ -280,7 +313,7 @@ Each app has a test asserting `default.save()` bytes **==** the fixture bytes.
 The app must always start with working hotkeys. On load:
 
 1. **File missing** → create the directory if needed and write the **built-in
-   default config** (preset `hyper`, the default keys from §3.6, `launchAtLogin:
+   default config** (preset `cmdShiftCtrl`, the default keys from §3.6, `launchAtLogin:
    false`). Run with it.
 2. **File present, parses, `schemaVersion` == current** → use it.
 3. **File present but malformed JSON, or `schemaVersion` > current (newer than this
@@ -353,21 +386,22 @@ action, surface the conflict in the UI, and leave the rest applied.
 ## 7. Worked example (default config, macOS-written)
 
 This is the default `settings.json` written to
-`~/Library/Application Support/LogicalSapien/MSIMonitorControl/` on first run
-(Windows writes the byte-identical file under
-`%APPDATA%\LogicalSapien\MSIMonitorControl\`):
+`~/Library/Application Support/LogicalSapien/MSIMonitorControl/` on first run. It is
+the canonical macOS fixture `docs/fixtures/settings.example.macos.json` (shown here
+with the §3.8 layout collapsed for readability; the on-disk file has multi-line
+`mods` per §3.8):
 
 ```json
 {
   "schemaVersion": 1,
-  "preset": "hyper",
+  "preset": "cmdShiftCtrl",
   "launchAtLogin": false,
   "bindings": {
-    "inputTypeC":  [ { "mods": ["control", "option", "shift"], "key": "C" } ],
-    "inputDP":     [ { "mods": ["control", "option", "shift"], "key": "D" } ],
-    "kvmUSBC":     [ { "mods": ["control", "option", "shift"], "key": "K" } ],
-    "kvmUpstream": [ { "mods": ["control", "option", "shift"], "key": "U" } ],
-    "kvmAuto":     [],
+    "inputTypeC":  [ { "mods": ["control", "shift", "command"], "key": "C" } ],
+    "inputDP":     [ { "mods": ["control", "shift", "command"], "key": "D" } ],
+    "kvmUSBC":     [ { "mods": ["control", "shift", "command"], "key": "K" } ],
+    "kvmUpstream": [ { "mods": ["control", "shift", "command"], "key": "U" } ],
+    "kvmAuto":     [ { "mods": ["control", "shift", "command"], "key": "A" } ],
     "pbpOn":       [],
     "pbpOff":      []
   },
@@ -378,9 +412,11 @@ This is the default `settings.json` written to
 }
 ```
 
-The identical file on Windows differs only in modifier spelling when `legacy` is
-applied (`option`→`alt`, no `command`); under `hyper`/`ctrlShift` the bytes are
-identical across platforms.
+The **Windows** default config (`docs/fixtures/settings.example.windows.json`) is
+identical except every default `mods` is `["control", "alt", "shift"]` (the default
+`cmdShiftCtrl` preset is per-OS — no `command` on Windows). So the default config is
+NOT byte-identical across platforms; under the platform-independent `ctrlShift`
+preset the two ARE byte-identical (see §2.1).
 
 ---
 
@@ -413,10 +449,13 @@ identical across platforms.
 5. Launch-at-login via HKCU `…\Run`.
 6. Tray reads derived display from `HotkeyConfig`.
 
-**Cross-cutting (both, verify against this doc):** a config written by one app must
-load byte-identically in the other under `hyper`/`ctrlShift`. Add a shared
-fixture: `docs/fixtures/settings.example.json` = §7, and each app has a test that
-parses it and reproduces the default bindings.
+**Cross-cutting (both, verify against this doc):** per-platform fixtures
+`docs/fixtures/settings.example.{macos,windows}.json` (§2.1) are the ground truth.
+Each app: (a) `default.save()` == its own platform fixture byte-for-byte;
+(b) parse its own fixture → default bindings; (c) load the OTHER platform's fixture
+→ equivalent model (mutual-loadability via the option↔alt synonym); (d) a
+`ctrlShift` config is byte-identical across platforms (the one true cross-app byte
+case, §2.1).
 
 ---
 

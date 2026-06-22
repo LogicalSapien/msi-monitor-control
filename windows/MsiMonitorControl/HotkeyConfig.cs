@@ -13,7 +13,12 @@ namespace MsiMonitorControl;
 /// </summary>
 public enum HotkeyPreset
 {
-    Hyper,
+    /// <summary>
+    /// The default scheme. JSON token <c>cmdShiftCtrl</c> (shared across apps). The modifiers are
+    /// per-platform — Windows: Control+Alt+Shift; macOS: Control+Shift+Command — chosen so the
+    /// chord falls on the SAME physical keys on each OS. Renamed from "hyper" in v0.2.1.
+    /// </summary>
+    CmdShiftCtrl,
     CtrlShift,
     Legacy,
     Custom,
@@ -117,10 +122,11 @@ public sealed class HotkeyConfig
     [JsonPropertyName("schemaVersion")]
     public int SchemaVersion { get; set; } = CurrentSchemaVersion;
 
-    // Serialised as a lower-camelCase string ("hyper"/"ctrlShift"/"legacy"/"custom") via the
-    // options-level JsonStringEnumConverter(CamelCase); no per-property attribute needed.
+    // Serialised as a lower-camelCase string ("cmdShiftCtrl"/"ctrlShift"/"legacy"/"custom") via
+    // the options-level JsonStringEnumConverter(CamelCase): the enum name CmdShiftCtrl camelCases
+    // to exactly the shared token "cmdShiftCtrl". No per-property attribute needed.
     [JsonPropertyName("preset")]
-    public HotkeyPreset Preset { get; set; } = HotkeyPreset.Hyper;
+    public HotkeyPreset Preset { get; set; } = HotkeyPreset.CmdShiftCtrl;
 
     [JsonPropertyName("launchAtLogin")]
     public bool LaunchAtLogin { get; set; }
@@ -161,7 +167,7 @@ public sealed class HotkeyConfig
         // byte-identical fixture. STJ writes `": "` + 2-space indent deterministically; it uses
         // the PLATFORM newline (CRLF on Windows/.NET 8), which ToJson() normalises to LF.
         Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
-        // We emit lower-camelCase enum values ("hyper", "ctrlShift", "legacy", "custom")
+        // We emit lower-camelCase enum values ("cmdShiftCtrl", "ctrlShift", "legacy", "custom")
         // to match the shared schema and the macOS Codable output.
         Converters =
         {
@@ -222,9 +228,9 @@ public sealed class HotkeyConfig
     /// </summary>
     public static IReadOnlyList<string> ModifiersForPreset(HotkeyPreset preset) => preset switch
     {
-        HotkeyPreset.Hyper     => new[] { ModControl, ModAlt, ModShift },
-        HotkeyPreset.CtrlShift => new[] { ModControl, ModShift },
-        HotkeyPreset.Legacy    => new[] { ModControl, ModAlt },
+        HotkeyPreset.CmdShiftCtrl => new[] { ModControl, ModAlt, ModShift }, // Windows: Ctrl+Alt+Shift
+        HotkeyPreset.CtrlShift    => new[] { ModControl, ModShift },
+        HotkeyPreset.Legacy       => new[] { ModControl, ModAlt },
         _                      => Array.Empty<string>(),
     };
 
@@ -254,7 +260,7 @@ public sealed class HotkeyConfig
         var nonEmpty = Bindings.Values.SelectMany(c => c).ToList();
         if (nonEmpty.Count == 0) return Preset; // nothing bound — keep the recorded label
 
-        foreach (var preset in new[] { HotkeyPreset.Hyper, HotkeyPreset.CtrlShift, HotkeyPreset.Legacy })
+        foreach (var preset in new[] { HotkeyPreset.CmdShiftCtrl, HotkeyPreset.CtrlShift, HotkeyPreset.Legacy })
         {
             var wanted = ModifiersForPreset(preset).ToHashSet(StringComparer.OrdinalIgnoreCase);
             if (nonEmpty.All(c => c.ModSet.SetEquals(wanted)))
@@ -268,19 +274,20 @@ public sealed class HotkeyConfig
     // ------------------------------------------------------------------------
 
     /// <summary>
-    /// The built-in default config: preset <c>hyper</c>, the four available actions bound to
-    /// their default keys, the three UNKNOWN-payload actions left with an empty array (no
+    /// The built-in default config: preset <c>cmdShiftCtrl</c> (Windows: Ctrl+Alt+Shift), the
+    /// five available actions (the four inputs/KVM + KVM Auto, live since v0.2.1) bound to their
+    /// default keys, the two UNKNOWN-payload actions (pbpOn/pbpOff) left with an empty array (no
     /// chord until reverse-engineered), <c>launchAtLogin</c> false, the built-in AltGr list.
     /// </summary>
     public static HotkeyConfig Default()
     {
-        var hyper = ModifiersForPreset(HotkeyPreset.Hyper).ToList();
-        Chord Bound(string key) => new(hyper, key);
+        var mods = ModifiersForPreset(HotkeyPreset.CmdShiftCtrl).ToList();
+        Chord Bound(string key) => new(mods, key);
 
         return new HotkeyConfig
         {
             SchemaVersion  = CurrentSchemaVersion,
-            Preset         = HotkeyPreset.Hyper,
+            Preset         = HotkeyPreset.CmdShiftCtrl,
             LaunchAtLogin  = false,
             Bindings = new Dictionary<string, List<Chord>>
             {
@@ -288,7 +295,7 @@ public sealed class HotkeyConfig
                 ["inputDP"]     = new() { Bound("D") },
                 ["kvmUSBC"]     = new() { Bound("K") },
                 ["kvmUpstream"] = new() { Bound("U") },
-                ["kvmAuto"]     = new(),   // empty: payload UNKNOWN → no chord
+                ["kvmAuto"]     = new() { Bound("A") },  // v0.2.1: byte[10]=0x30 confirmed → live, seeded.
                 ["pbpOn"]       = new(),   // empty: payload UNKNOWN → no chord
                 ["pbpOff"]      = new(),   // empty: payload UNKNOWN → no chord
             },
@@ -583,14 +590,17 @@ public sealed class HotkeyConfig
     }
 
     // ------------------------------------------------------------------------
-    // Canonical serialisation — BYTE-IDENTICAL across apps (docs/SETTINGS.md §3.8).
-    // The shared fixture docs/fixtures/settings.example.json IS the canonical output for the
-    // default config (regenerated from the encoders), and `Default().ToJson()` must equal it
-    // byte-for-byte. The §3.8 canonical form happens to be STJ-native (`": "` separator,
-    // 2-space indent, multi-line scalar arrays, `[]` for empty, LF), so stock System.Text.Json
-    // with WriteIndented produces it — we only add the controls STJ lacks:
+    // Canonical serialisation (docs/SETTINGS.md §3.8). Byte-identity is scoped per §2.1/§3.8:
+    //   • the DEFAULT preset (cmdShiftCtrl) is per-OS — Windows writes `alt`, macOS writes
+    //     `command` — so each platform's default file matches only ITS OWN fixture
+    //     (docs/fixtures/settings.example.windows.json here); they are NOT cross-platform identical;
+    //   • the platform-INDEPENDENT `ctrlShift` preset IS byte-identical across both apps;
+    //   • mutual-loadability holds for ALL presets (a macOS file loads here, command dropped).
+    // `Default().ToJson()` must equal the WINDOWS fixture byte-for-byte. The §3.8 canonical form is
+    // STJ-native (`": "` separator, 2-space indent, multi-line scalar arrays, `[]` for empty), so
+    // stock System.Text.Json + WriteIndented produces it; we only add the controls STJ lacks:
     //   • UnsafeRelaxedJsonEscaping → unescaped `/ @ { } [ ]` (matches §3.8);
-    //   • BindingsConverter → canonical actionId order + `option` modifier spelling + mods/key order;
+    //   • BindingsConverter → canonical actionId order + NATIVE `alt` spelling + mods/key order;
     //   • LF line endings — see the CRLF note below;
     //   • a single trailing newline appended here (STJ omits it; §3.8 requires exactly one);
     //   • UTF-8 no BOM (SaveTo).
@@ -598,8 +608,8 @@ public sealed class HotkeyConfig
     // CRLF BUG (the reason we post-process): on .NET 8, System.Text.Json's WriteIndented uses the
     // PLATFORM newline — `Environment.NewLine`, i.e. CRLF on Windows. (`JsonWriterOptions.NewLine`
     // that would let us force LF only exists in .NET 9+.) The CI target is net8.0-windows, so
-    // stock STJ would emit CRLF at runtime → NOT byte-identical to the macOS LF file. We therefore
-    // normalise `\r\n`→`\n` after serialising. The contract is LF EVERYWHERE.
+    // stock STJ would emit CRLF at runtime → NOT matching the LF fixture. We therefore normalise
+    // `\r\n`→`\n` after serialising. The contract is LF EVERYWHERE.
     // ------------------------------------------------------------------------
 
     /// <summary>actionId write-order for the bindings map (docs/SETTINGS.md §3.6, §3.8).</summary>
@@ -608,10 +618,10 @@ public sealed class HotkeyConfig
 
     /// <summary>
     /// Serialises this config to its canonical on-disk JSON (docs/SETTINGS.md §3.8) — LF line
-    /// endings, single trailing newline — so <c>Default().ToJson()</c> equals the shared fixture
+    /// endings, single trailing newline — so <c>Default().ToJson()</c> equals the WINDOWS fixture
     /// byte-for-byte on every platform. Stock System.Text.Json gives the §3.8 layout;
-    /// <see cref="BindingsConverter"/> drives actionId order + the `option` spelling; we then force
-    /// LF (STJ emits the platform newline on .NET 8) and ensure exactly one trailing newline.
+    /// <see cref="BindingsConverter"/> drives actionId order + the native `alt` spelling; we then
+    /// force LF (STJ emits the platform newline on .NET 8) and ensure exactly one trailing newline.
     /// </summary>
     public string ToJson()
     {
@@ -815,11 +825,15 @@ internal sealed class BindingsConverter : JsonConverter<Dictionary<string, List<
         return new Chord(mods, key ?? "");
     }
 
-    // mods write-order using the cross-platform `option` spelling (we store `alt`; map on write).
+    // mods write-order — §3.8 canonical order control, alt, shift (command never on Windows).
+    // v0.2.1: Windows writes its NATIVE `alt` spelling (not `option`). The per-platform default
+    // is intentional — Windows writes `alt`, macOS writes `command`/`option` — so the default
+    // config is byte-identical only WITHIN a platform. The option→alt READ synonym still lets a
+    // macOS-written config load here unchanged.
     private static readonly (string Stored, string Written)[] ModWriteOrder =
     {
         (HotkeyConfig.ModControl, "control"),
-        (HotkeyConfig.ModAlt,     "option"),  // stored "alt" → written "option" (matches macOS/fixture)
+        (HotkeyConfig.ModAlt,     "alt"),     // native Windows spelling
         (HotkeyConfig.ModShift,   "shift"),
     };
 

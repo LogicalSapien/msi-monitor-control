@@ -4,6 +4,15 @@
 
 ## Current focus
 
+**v0.2.1 — default hotkey scheme fix (macOS).** Default chord changed from ⌃⌥⇧ to
+**⌃⇧⌘ (Control+Shift+Command, NO Option)** per user testing; preset renamed
+`hyper`→`cmdShiftCtrl` with a platform-aware label. The new default is **per-OS**
+(Mac `command`, Windows `alt`), so the shared fixture is now **split** into
+`settings.example.{macos,windows}.json`; byte-identity across apps now holds only
+for the platform-independent `ctrlShift` preset, with mutual-loadability proven for
+the per-OS default. macOS DONE + verified (uncommitted — awaiting Codex review).
+See the v0.2.1 section below.
+
 **v0.2.0 — configurable cross-platform hotkeys + settings.** Design contract
 `docs/SETTINGS.md` APPROVED. macOS implementation done + verified (uncommitted —
 awaiting lead Codex-review); Windows building in parallel against the same schema.
@@ -12,6 +21,24 @@ awaiting lead Codex-review); Windows building in parallel against the same schem
   `SMAppService` launch-at-login. **DONE, verified, uncommitted** (2026-06-22).
 - Earlier: Phase 1 + post-MVP hardening + hardware-feedback fixes — COMPLETE (committed).
 - **msi-windows** — Track C/D + KVM/Auto fixes COMPLETE; v0.2.0 C# side in progress.
+
+### v0.2.1 — default scheme fix (msi-mac, 2026-06-22 — awaiting Codex review + commit)
+
+| Item | File(s) | Notes |
+|:-----|:--------|:------|
+| Default mods ⌃⌥⇧ → **⌃⇧⌘** | `HotkeyConfig.swift` | `HotkeyPreset.cmdShiftCtrl.macModifiers` = `[control, shift, command]` (drop option). `makeDefault()` seeds it. |
+| Preset rename `hyper` → `cmdShiftCtrl` | `HotkeyConfig.swift`, tests | Raw token is contract-shared with Windows. Added `isPerPlatform` + `macDisplayName` (label derived from mods, e.g. "Default (⌃⇧⌘)"). `inferredPreset` updated. |
+| Platform-aware preset label | `SettingsView.swift` | Dropdown labels now come from `preset.macDisplayName` (no hardcoded glyphs). |
+| **Fixture split** (per-OS default) | `docs/fixtures/settings.example.{macos,windows}.json` | Old single `settings.example.json` removed. macOS mods `[control,shift,command]`; Windows mods `[control,alt,shift]` (canonical order: control, alt/option, shift, command → alt before shift). Both regenerated to the §3.8 canonical layout. |
+| Contract wording | `docs/SETTINGS.md` §2.1, §3.2, §3.8, §7, §8 | Byte-identity across apps holds ONLY for platform-independent presets (`ctrlShift`); per-OS presets (`cmdShiftCtrl`, `legacy`) are byte-identical only within a platform; mutual-loadability holds for all presets via option↔alt synonym + command-drop-on-Windows. |
+| Tests | `HotkeyConfigTests.swift` | Default mods/preset/byte-equality updated to macOS fixture; `testWindowsFixtureLoadsViaSynonym` (mutual-loadability) + `testMacFixtureParsesToDefaults`. Duplicate/AltGr tests updated for new default. |
+| **Shared ctrlShift byte fixture** | `docs/fixtures/settings.example.ctrlshift.json` (new) | Platform-INDEPENDENT default config under `ctrlShift` (mods `["control","shift"]`). `testCtrlShiftPresetIsByteIdenticalToSharedFixture` now asserts `default→ctrlShift save() == this fixture` BYTE-FOR-BYTE (was a shape-only no-command/no-alt check). Windows points its test at the SAME file → proves true cross-app byte-identity. |
+| **KVM byte→port mapping FIX (hardware-confirmed)** | `Command.swift`, `docs/PROTOCOL.md`, tests, all 3 fixtures, `tools/README.md` | Probed on the MD342CQP via `tools/kvm-probe`: **0x30=Auto, 0x31=Upstream, 0x32=USB-C** (0x33 no-op). Corrected `kvmUSBC` 0x30→**0x32**; `kvmUpstream` 0x31 unchanged; **`kvmAuto` now LIVE** — byte[10]=**0x30** (was nil/UNKNOWN), a normal available command with menu item + ⌃⇧⌘A hotkey **and a seeded default `A` chord in all 3 fixtures** (lead decision A). Tests flipped; all 3 fixtures regenerated (kvmAuto bound). PROTOCOL.md KVM + "What is NOT known" updated (only PBP remains unknown). Probe tools `kvm-probe`/`kvm-send` kept + documented. |
+| **Debug log + crash/signal capture** | `MSIControl/DebugLog.swift` (new, + tests), `App.swift`, `MSIDevice.swift`, `HotKeys.swift`, `SettingsStore.swift`, `MenuBarView.swift` | For the "app silently quits" bug. File log at `…/LogicalSapien/MSIMonitorControl/debug.log` (size-capped ~1MB, session-start marker, ISO8601 lines, os_log mirror). Logs launch/quit, hotkey fires, HID send + IOReturn, device locate/connect, reopen-retry, settings commit/rollback + save errors. **Crash capture (async-signal-safe — Codex blocker fixed):** signal handler is a file-scope C function pointer touching ONLY pre-built globals (pre-opened fd + per-signal markers pre-encoded as `[UInt8]` at startup); in-handler it calls ONLY `write` + `backtrace_symbols_fd` (alloc-free backtrace) + `signal`/`raise` — NO String/malloc/Foundation/os_log (those can deadlock mid-crash). `NSSetUncaughtExceptionHandler` keeps full String+backtrace (normal context). Signals SIGSEGV/ABRT/ILL/BUS/TRAP/**SIGTERM**. "Reveal Debug Log…" menu item. Verified: SIGTERM writes `FATAL TERMINATING: signal SIGTERM` + a full backtrace end-to-end. |
+
+**Coordination for msi-windows-2:** preset raw token is **`cmdShiftCtrl`** (must match exactly); Windows default config = `settings.example.windows.json` with default mods `["control","alt","shift"]` in canonical order (alt BEFORE shift). `ctrlShift` is the only byte-identical-across-platforms preset.
+
+**Verification (v0.2.1):** `swift build` + `-c release` clean, **no warnings**; `swift test` = **55 tests, 0 failed, 3 skipped** (2 device + REGEN generator). `testDefaultSaveBytesEqualFixtureBytes` (vs macOS fixture) + the new cross-app tests pass. `./build-app.sh` valid; fresh first-run config is **byte-for-byte identical to `settings.example.macos.json`** (verified via `diff`). NOT committed.
 
 ### v0.2.0 — settings + hotkeys (msi-mac, 2026-06-22 — awaiting Codex review + commit)
 
@@ -278,6 +305,65 @@ now normalises `\r\n`→`\n` after serialising, then ensures exactly one trailin
 byte-identical to the fixture + macOS. The test's `Assert.DoesNotContain("\r", actual)` now
 positively guards this. **The lesson: "correct-by-construction" on a Mac cannot catch
 platform-newline behaviour — real windows-latest execution was required.**
+
+### v0.2.1 — default scheme fix (msi-windows, 2026-06-22 — awaiting Codex review + commit)
+
+User testing changed the default scheme: macOS ⌃⌥⇧→⌃⇧⌘; **Windows default UNCHANGED at
+Ctrl+Alt+Shift** (intentional per-OS: Mac Command sits where the user's Alt is → same physical
+keys). Windows changes:
+- **Preset rename** `hyper`→`cmdShiftCtrl` (JSON token + enum case `HotkeyPreset.CmdShiftCtrl`;
+  the auto camelCase converter maps the enum name → exactly `cmdShiftCtrl`). Windows dropdown
+  label "Default (Ctrl+Alt+Shift)". Clean rename, **no `hyper` read-alias** (new app, no
+  v0.2.0 configs in the wild — lead+human confirmed).
+- **Native `alt` on write:** removed the v0.2.0 `alt`→`option` write-mapping; Windows now writes
+  its native `alt` (the option→alt READ synonym stays so a macOS file still loads).
+- **Fixture split:** old `settings.example.json` deleted; `settings.example.windows.json` (mine:
+  `cmdShiftCtrl`, mods `["control","alt","shift"]`) + `settings.example.macos.json` (mac:
+  `["control","shift","command"]`). My output matches the windows fixture byte-for-byte
+  (hand-verified vs `od -c`: ends `}\n}\n`, no BOM, native `alt`).
+- **Byte-identity now scoped (§2.1/§3.8):** the per-OS DEFAULT is byte-identical only WITHIN a
+  platform; the platform-independent `ctrlShift` preset is the genuine cross-app byte check;
+  mutual-loadability holds everywhere (a macOS default loads here with `command` dropped→Ctrl+Shift).
+- **Tests:** `DefaultToJson_EqualsWindowsFixture_ByteForByte` (was EqualsSharedFixture);
+  `WindowsFixture_ParsesAndReproducesDefaultBindings`; **`CtrlShiftPreset_IsByteIdenticalToSharedFixture`**
+  — now asserts `ApplyPreset(ctrlShift).ToJson() == docs/fixtures/settings.example.ctrlshift.json`
+  BYTE-FOR-BYTE (msi-mac's committed shared reference; the macOS side asserts the SAME file →
+  true cross-app byte-identity, not shape-only); **`MacosFixture_CrossLoads_CommandDroppedRestSurvives`**
+  (mutual-loadability); flipped `Default_WrittenJson_UsesNativeAltSpelling_NotOption`; all
+  `Hyper`→`CmdShiftCtrl`/`WinDefault` renames; test csproj copies all THREE fixtures
+  (windows + macos + ctrlshift).
+- Contract-comment wording aligned to the scoped-byte-identity model (matches msi-mac's
+  §2.1/§3.2/§3.8: cross-app byte-identity for ctrlShift only; per-OS presets within-platform;
+  mutual-loadability everywhere).
+- Runtime stays LF (v0.2.0 fix kept). No local dotnet → windows-latest CI is the gate. Not committed.
+- **KVM byte[10] mapping — DONE (hardware-confirmed v0.2.1):** `Command.cs` updated to the
+  probed mapping — **USB-C=0x32 (was wrongly 0x30), Upstream=0x31, Auto=0x30**. `KvmUsbC` byte[10]
+  fixed; new `PayloadKvmAuto` (0x30); `PayloadFor(KvmAuto)` returns it (no longer throws);
+  `IsAvailable(KvmAuto)=true` → KVM Auto is now a LIVE command (menu item + eligible for a hotkey).
+  `CommandTests` updated: `ExpectedKvmUsbC` byte[10]→0x32, new `ExpectedKvmAuto`/`KvmAutoPayloadMatchesProtocol`,
+  `KvmPayloadsDifferOnlyAtByte10_WithConfirmedMapping` (all three), KvmAuto removed from the
+  throws-theory, `IsAvailable(KvmAuto)` false→true. Byte-identical to macOS Command.swift.
+  **KvmAuto default binding — RESOLVED (option A):** msi-mac regenerated all 3 fixtures with
+  kvmAuto now BOUND (windows `["control","alt","shift"]` key `A`; macos `["control","shift","command"]`
+  key `A`). So `Default()` now seeds `kvmAuto = [{cmdShiftCtrl, A}]` (matches the regenerated
+  windows fixture → byte test green). Updated the 4 tests that asserted kvmAuto empty (now assert
+  the `A` chord; use pbpOn for the still-empty cases); cross-load test loops kvmAuto too
+  (macOS command-drop → Ctrl+Shift+A).
+
+**Debug logging + crash capture (msi-windows, v0.2.1 — matches macOS):**
+- New `DebugLog.cs` — static best-effort file logger → `%APPDATA%\LogicalSapien\MSIMonitorControl\debug.log`
+  (vendor dir, beside settings.json). Truncate-on-launch + session-start marker; ~1 MB size
+  backstop. Structured British-English lines `yyyy-MM-dd HH:mm:ss.fff [LEVEL] message`. Never
+  throws into the app (all writes wrapped).
+- **Crash capture:** `Init()` hooks `AppDomain.UnhandledException` + `Application.ThreadException`
+  → writes a `FATAL TERMINATING: <type>: <msg>\n<stack>` line before death. `Program.Main` sets
+  `SetUnhandledExceptionMode(CatchException)` + logs launch/exit; normal quit logs `Session ended`
+  → distinguishes user-quit from crash.
+- **Logged events:** app launch/quit, tray ready, every command invoked (which command), every HID
+  send + result (OK/DeviceNotFound/UNKNOWN-payload/exception), device connect/disconnect/refresh,
+  settings saves + re-register rejections.
+- **Discoverable:** tray "Reveal debug log" item → opens the folder (selects the file) via Explorer.
+- Wired into Program.cs, TrayApp.cs, MsiDevice.cs (16 call sites).
 
 ## Blockers
 

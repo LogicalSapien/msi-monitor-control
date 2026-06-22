@@ -163,13 +163,14 @@ final class HotKeyManager: HotkeyRegistering {
                     registrations[id] = Registration(ref: ref, command: command)
                 } else {
                     // Reserved or already taken — surface for conflict handling.
-                    print("[HotKeys] RegisterEventHotKey failed for \(command.actionId) (\(chord.display)): OSStatus \(status)")
+                    DebugLog.shared.warn("hotkey register FAILED for \(command.actionId) (\(chord.display)): OSStatus \(status)")
                     if !failedActions.contains(command.actionId) {
                         failedActions.append(command.actionId)
                     }
                 }
             }
         }
+        DebugLog.shared.info("hotkeys (re)registered: \(registrations.count) active\(failedActions.isEmpty ? "" : ", \(failedActions.count) rejected: \(failedActions.joined(separator: ","))")")
         return failedActions
     }
 
@@ -184,6 +185,7 @@ final class HotKeyManager: HotkeyRegistering {
 
     private func handleHotKey(id: UInt32) {
         guard let command = registrations[id]?.command else { return }
+        DebugLog.shared.info("hotkey fired → \(command.actionId)")
         DispatchQueue.main.async { [weak self] in
             self?.deviceState?.send(command)
         }

@@ -39,9 +39,18 @@ public sealed class MsiDevice
     /// </summary>
     public void Refresh()
     {
+        bool wasConnected = _device is not null;
         _device = DeviceList.Local
             .GetHidDevices(VendorId, ProductId)
             .FirstOrDefault();
+
+        bool nowConnected = _device is not null;
+        if (nowConnected != wasConnected)
+            DebugLog.Info(nowConnected
+                ? $"Monitor connected (VID=0x{VendorId:X4} PID=0x{ProductId:X4})."
+                : "Monitor disconnected.");
+        else
+            DebugLog.Info($"Device refresh — {(nowConnected ? "connected" : "not found")}.");
     }
 
     /// <summary>
@@ -52,7 +61,10 @@ public sealed class MsiDevice
     public MsiResult Send(CommandKind command)
     {
         if (_device is null)
+        {
+            DebugLog.Warn($"Send {command}: monitor not found (device not connected).");
             return MsiResult.DeviceNotFound;
+        }
 
         byte[] payload;
         try
@@ -61,9 +73,10 @@ public sealed class MsiDevice
         }
         catch (NotImplementedException)
         {
-            // Payload not yet known (PBP/KVM — see docs/PROTOCOL.md §"What is NOT known").
+            // Payload not yet known (PBP — see docs/PROTOCOL.md §"What is NOT known").
             // Return SendFailed so the tray app can show a diagnostic rather than silently
             // doing nothing. Do NOT invent bytes.
+            DebugLog.Warn($"Send {command}: payload UNKNOWN (not reverse-engineered) — not sent.");
             return MsiResult.SendFailed;
         }
 
@@ -75,10 +88,12 @@ public sealed class MsiDevice
             // Don't block indefinitely if the device stalls or stops responding.
             stream.WriteTimeout = 1000; // milliseconds
             stream.Write(payload);
+            DebugLog.Info($"Send {command}: OK ({payload.Length}-byte HID Output report).");
             return MsiResult.Success;
         }
-        catch (Exception)
+        catch (Exception ex)
         {
+            DebugLog.Exception($"Send {command}: HID write FAILED", ex);
             return MsiResult.SendFailed;
         }
     }

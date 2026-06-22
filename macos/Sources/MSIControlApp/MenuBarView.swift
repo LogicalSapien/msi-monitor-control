@@ -55,9 +55,24 @@ struct MenuBarView: View {
         }
         .keyboardShortcut(",")
 
+        Button("Reveal Debug Log…") {
+            revealDebugLog()
+        }
+
         Button("Quit MSI Monitor Control") {
             NSApplication.shared.terminate(nil)
         }
         .keyboardShortcut("q")
+    }
+
+    /// Reveals `debug.log` in Finder so the user can grab it after an unexpected
+    /// quit. Falls back to opening the containing folder if the file isn't there yet.
+    private func revealDebugLog() {
+        guard let url = try? DebugLog.defaultURL() else { return }
+        if FileManager.default.fileExists(atPath: url.path) {
+            NSWorkspace.shared.activateFileViewerSelecting([url])
+        } else {
+            NSWorkspace.shared.open(url.deletingLastPathComponent())
+        }
     }
 }

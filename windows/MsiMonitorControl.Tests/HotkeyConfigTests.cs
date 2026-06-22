@@ -5,14 +5,16 @@ using Xunit;
 namespace MsiMonitorControl.Tests;
 
 /// <summary>
-/// Tests for <see cref="HotkeyConfig"/> — the Windows half of the shared cross-platform
-/// settings contract (docs/SETTINGS.md). Covers the §4 fallback rules, §3.5 validation,
-/// §3.7 derived display, preset apply/derive, modifier normalisation, and a round-trip
-/// against the shared fixture <c>docs/fixtures/settings.example.json</c>.
+/// Tests for <see cref="HotkeyConfig"/> — the Windows half of the cross-platform settings
+/// contract (docs/SETTINGS.md). Covers the §4 fallback rules, §3.5 validation, §3.7 derived
+/// display, preset apply/derive, modifier normalisation, byte-equality against the per-platform
+/// Windows fixture (settings.example.windows.json), the platform-independent ctrlShift cross-app
+/// byte check, and cross-load of the macOS fixture (settings.example.macos.json).
 /// </summary>
 public class HotkeyConfigTests
 {
-    private static Chord Hyper(string key) =>
+    /// <summary>The Windows default chord (preset <c>cmdShiftCtrl</c>): Control+Alt+Shift+key.</summary>
+    private static Chord WinDefault(string key) =>
         new(new[] { HotkeyConfig.ModControl, HotkeyConfig.ModAlt, HotkeyConfig.ModShift }, key);
 
     // -------------------------------------------------------------------------
@@ -41,33 +43,30 @@ public class HotkeyConfigTests
         }
     }
 
-    // -- Canonical serialisation: BYTE-IDENTICAL across apps (docs/SETTINGS.md §3.8) --
-    // The shared fixture IS the canonical default-config output; Default().ToJson() must equal
-    // it byte-for-byte. Plus determinism, the `option` spelling, and write→read→same-model.
+    // -- Canonical serialisation: BYTE-IDENTICAL within a platform (docs/SETTINGS.md §3.8) --
+    // v0.2.1: the default config is per-OS (Windows writes `alt`, macOS writes `command`), so the
+    // byte-identity guarantee is scoped to a platform's OWN fixture for the default preset, plus
+    // the platform-INDEPENDENT `ctrlShift` preset for true cross-app identity (see below).
+    // Default().ToJson() must equal the WINDOWS fixture byte-for-byte.
 
     [Fact]
-    public void DefaultToJson_EqualsSharedFixture_ByteForByte()
+    public void DefaultToJson_EqualsWindowsFixture_ByteForByte()
     {
-        // §3.8: each app asserts default.save() == the canonical fixture, byte-for-byte. This is
-        // the cross-app canonical-format proof on the Windows side.
+        // §3.8: the Windows app asserts default.save() == its own canonical fixture, byte-for-byte.
         //
         // The contract EOL is LF (`\n`) with a single trailing newline; the app ALWAYS emits LF
-        // (asserted positively below). We normalise the fixture-ON-DISK's CRLF→LF before comparing
-        // only because Git autocrlf / a Windows editor can rewrite the checked-out fixture to
-        // CRLF — that's a working-tree artefact, not a contract difference. .gitattributes pins
-        // the fixture to eol=lf; this normalisation is belt-and-braces so the test can't regress
-        // if someone's editor rewrites it. We do NOT loosen the rest of the byte comparison.
-        var path = Path.Combine(AppContext.BaseDirectory, "fixtures", "settings.example.json");
-        Assert.True(File.Exists(path), $"Fixture not copied to output: {path}");
+        // (asserted positively below — also guards the v0.2.0 STJ-CRLF-on-Windows fix). We
+        // normalise the fixture-ON-DISK's CRLF→LF before comparing only because Git autocrlf / a
+        // Windows editor can rewrite the checked-out fixture to CRLF — a working-tree artefact,
+        // not a contract difference. .gitattributes pins it to eol=lf; the normalisation is
+        // belt-and-braces. We do NOT loosen the rest of the byte comparison.
+        var path = Path.Combine(AppContext.BaseDirectory, "fixtures", "settings.example.windows.json");
+        Assert.True(File.Exists(path), $"Windows fixture not copied to output: {path}");
 
-        var fixtureOnDisk = File.ReadAllText(path);
-        var expected = fixtureOnDisk.Replace("\r\n", "\n");
+        var expected = File.ReadAllText(path).Replace("\r\n", "\n");
         var actual = HotkeyConfig.Default().ToJson();
 
-        // The app's runtime output is LF — pin that positively so a regression to CRLF fails here
-        // regardless of how the fixture happens to be checked out.
-        Assert.DoesNotContain("\r", actual);
-
+        Assert.DoesNotContain("\r", actual); // runtime output is LF
         Assert.Equal(expected, actual);
     }
 
@@ -89,13 +88,15 @@ public class HotkeyConfigTests
     }
 
     [Fact]
-    public void Default_WrittenJson_UsesOptionSpelling_NotAlt()
+    public void Default_WrittenJson_UsesNativeAltSpelling_NotOption()
     {
-        // The hyper default must WRITE "option" (the §3.8 canonical token), even though we
-        // store/compare it as "alt" internally (read as a synonym).
+        // v0.2.1: the Windows default WRITES its native "alt" (NOT "option" — that was the v0.2.0
+        // shared-fixture spelling, now removed). macOS writes "command" in its default; the two
+        // default files are intentionally per-platform. ("alt" is also what we store internally.)
         var json = HotkeyConfig.Default().ToJson();
-        Assert.Contains("\"option\"", json);
-        Assert.DoesNotContain("\"alt\"", json);
+        Assert.Contains("\"alt\"", json);
+        Assert.DoesNotContain("\"option\"", json);
+        Assert.DoesNotContain("\"command\"", json); // Windows default never writes command
     }
 
     [Fact]
@@ -126,9 +127,9 @@ public class HotkeyConfigTests
             Assert.True(File.Exists(path));
 
             var loaded = HotkeyConfig.LoadFrom(path);
-            Assert.Equal(HotkeyPreset.Hyper, loaded.Preset);
+            Assert.Equal(HotkeyPreset.CmdShiftCtrl, loaded.Preset);
             Assert.Single(loaded.Bindings["inputTypeC"]);
-            Assert.True(Hyper("C").Matches(loaded.Bindings["inputTypeC"][0]));
+            Assert.True(WinDefault("C").Matches(loaded.Bindings["inputTypeC"][0]));
         }
         finally
         {
@@ -146,8 +147,9 @@ public class HotkeyConfigTests
             var loaded = HotkeyConfig.LoadFrom(path);
 
             Assert.True(File.Exists(path)); // §4.1: default written
-            Assert.Equal(HotkeyPreset.Hyper, loaded.Preset);
-            Assert.Empty(loaded.Bindings["kvmAuto"]); // UNKNOWN payload → no chord
+            Assert.Equal(HotkeyPreset.CmdShiftCtrl, loaded.Preset);
+            Assert.True(WinDefault("A").Matches(loaded.Bindings["kvmAuto"][0])); // v0.2.1: KVM Auto live + seeded
+            Assert.Empty(loaded.Bindings["pbpOn"]); // PBP still UNKNOWN → no chord
         }
         finally
         {
@@ -166,8 +168,8 @@ public class HotkeyConfigTests
 
         // §4.3: ignore the file, run on in-memory defaults.
         Assert.Equal(HotkeyConfig.CurrentSchemaVersion, parsed.SchemaVersion);
-        Assert.Equal(HotkeyPreset.Hyper, parsed.Preset);
-        Assert.True(Hyper("C").Matches(parsed.Bindings["inputTypeC"][0]));
+        Assert.Equal(HotkeyPreset.CmdShiftCtrl, parsed.Preset);
+        Assert.True(WinDefault("C").Matches(parsed.Bindings["inputTypeC"][0]));
     }
 
     [Fact]
@@ -181,7 +183,7 @@ public class HotkeyConfigTests
             var loaded = HotkeyConfig.LoadFrom(path);
 
             // Runs on defaults …
-            Assert.Equal(HotkeyPreset.Hyper, loaded.Preset);
+            Assert.Equal(HotkeyPreset.CmdShiftCtrl, loaded.Preset);
             // … but the user's (broken) file is left untouched for them to fix (§4.3).
             Assert.Equal(garbage, File.ReadAllText(path));
         }
@@ -209,7 +211,7 @@ public class HotkeyConfigTests
             var loaded = HotkeyConfig.LoadFrom(path);
 
             // §4.3: newer version is ignored → in-memory defaults, NOT the file's binding.
-            Assert.True(Hyper("C").Matches(loaded.Bindings["inputTypeC"][0]));
+            Assert.True(WinDefault("C").Matches(loaded.Bindings["inputTypeC"][0]));
             // And the newer file is preserved verbatim (don't clobber a newer app's config).
             Assert.Equal(futureJson, File.ReadAllText(path));
         }
@@ -226,7 +228,7 @@ public class HotkeyConfigTests
         const string json = """
         {
           "schemaVersion": 1,
-          "preset": "hyper",
+          "preset": "cmdShiftCtrl",
           "launchAtLogin": false,
           "bindings": {
             "inputTypeC": [ { "mods": ["control","alt","shift"], "key": "C" } ],
@@ -317,7 +319,7 @@ public class HotkeyConfigTests
         var parsed = HotkeyConfig.Parse(json, overwriteOnRepair: false, out _);
 
         Assert.Single(parsed.Bindings["inputTypeC"]); // string entry skipped, object kept
-        Assert.True(Hyper("C").Matches(parsed.Bindings["inputTypeC"][0]));
+        Assert.True(WinDefault("C").Matches(parsed.Bindings["inputTypeC"][0]));
         Assert.Empty(parsed.Bindings["inputDP"]);      // non-array → no chord
         Assert.Single(parsed.Bindings["kvmUSBC"]);     // untouched well-formed binding loads
     }
@@ -439,7 +441,7 @@ public class HotkeyConfigTests
         const string json = """
         {
           "schemaVersion": 1,
-          "preset": "hyper",
+          "preset": "cmdShiftCtrl",
           "launchAtLogin": false,
           "bindings": { "inputTypeC": [ { "mods": ["control","alt","shift"], "key": "C" } ] }
         }
@@ -459,7 +461,7 @@ public class HotkeyConfigTests
     {
         var config = HotkeyConfig.Default();
         // inputDP already owns Ctrl+Alt+Shift+D. Try to bind the same chord to kvmUSBC.
-        var candidate = Hyper("D");
+        var candidate = WinDefault("D");
 
         var result = config.ValidateChord("kvmUSBC", candidate);
 
@@ -472,7 +474,7 @@ public class HotkeyConfigTests
     {
         var config = HotkeyConfig.Default();
         // Re-validating inputTypeC's existing chord (slot 0) against itself must be allowed.
-        var result = config.ValidateChord("inputTypeC", Hyper("C"), excludeChordIndex: 0);
+        var result = config.ValidateChord("inputTypeC", WinDefault("C"), excludeChordIndex: 0);
         Assert.True(result.IsValid);
     }
 
@@ -517,7 +519,7 @@ public class HotkeyConfigTests
     [Fact]
     public void DisplayString_JoinsWordsWithPlus_InCanonicalOrder()
     {
-        Assert.Equal("Ctrl+Alt+Shift+C", HotkeyConfig.DisplayString(Hyper("C")));
+        Assert.Equal("Ctrl+Alt+Shift+C", HotkeyConfig.DisplayString(WinDefault("C")));
     }
 
     [Fact]
@@ -539,8 +541,9 @@ public class HotkeyConfigTests
     public void PrimaryDisplay_EmptyForUnboundAction()
     {
         var config = HotkeyConfig.Default();
-        Assert.Equal("", config.PrimaryDisplay("kvmAuto"));      // no chord
+        Assert.Equal("", config.PrimaryDisplay("pbpOn"));        // PBP unbound (UNKNOWN payload)
         Assert.Equal("Ctrl+Alt+Shift+C", config.PrimaryDisplay("inputTypeC"));
+        Assert.Equal("Ctrl+Alt+Shift+A", config.PrimaryDisplay("kvmAuto")); // v0.2.1: now bound
     }
 
     // -------------------------------------------------------------------------
@@ -570,14 +573,14 @@ public class HotkeyConfigTests
         var chord = config.Bindings["inputTypeC"][0];
         Assert.True(chord.ModSet.SetEquals(new[] { HotkeyConfig.ModControl, HotkeyConfig.ModShift }));
         Assert.Equal("C", chord.Key); // key unchanged, only mods re-baked
-        Assert.Empty(config.Bindings["kvmAuto"]); // empty stays empty
+        Assert.Empty(config.Bindings["pbpOn"]); // empty stays empty (PBP UNKNOWN)
     }
 
     [Fact]
     public void DerivePreset_ReturnsCustom_AfterHandEdit()
     {
-        var config = HotkeyConfig.Default(); // hyper
-        Assert.Equal(HotkeyPreset.Hyper, config.DerivePreset());
+        var config = HotkeyConfig.Default(); // cmdShiftCtrl
+        Assert.Equal(HotkeyPreset.CmdShiftCtrl, config.DerivePreset());
 
         // Hand-edit one binding to Ctrl-only → no longer matches any named preset.
         config.Bindings["inputTypeC"][0] = new Chord(new[] { HotkeyConfig.ModControl }, "C");
@@ -585,49 +588,98 @@ public class HotkeyConfigTests
     }
 
     // -------------------------------------------------------------------------
-    // Shared fixture (docs/fixtures/settings.example.json) — cross-platform guard
+    // Per-platform fixtures (docs/fixtures/settings.example.{windows,macos}.json)
     // -------------------------------------------------------------------------
 
     [Fact]
-    public void Fixture_ParsesAndReproducesDefaultBindings()
+    public void WindowsFixture_ParsesAndReproducesDefaultBindings()
     {
-        var path = Path.Combine(AppContext.BaseDirectory, "fixtures", "settings.example.json");
-        Assert.True(File.Exists(path), $"Fixture not copied to output: {path}");
+        var path = Path.Combine(AppContext.BaseDirectory, "fixtures", "settings.example.windows.json");
+        Assert.True(File.Exists(path), $"Windows fixture not copied to output: {path}");
 
-        var raw = File.ReadAllText(path);
-        var parsed = HotkeyConfig.Parse(raw, overwriteOnRepair: false, out _);
+        var parsed = HotkeyConfig.Parse(File.ReadAllText(path), overwriteOnRepair: false, out _);
 
         Assert.Equal(1, parsed.SchemaVersion);
-        Assert.Equal(HotkeyPreset.Hyper, parsed.Preset);
+        Assert.Equal(HotkeyPreset.CmdShiftCtrl, parsed.Preset);
         Assert.False(parsed.LaunchAtLogin);
 
-        // The four available actions reproduce the §7 default chords exactly.
-        Assert.True(Hyper("C").Matches(parsed.Bindings["inputTypeC"][0]));
-        Assert.True(Hyper("D").Matches(parsed.Bindings["inputDP"][0]));
-        Assert.True(Hyper("K").Matches(parsed.Bindings["kvmUSBC"][0]));
-        Assert.True(Hyper("U").Matches(parsed.Bindings["kvmUpstream"][0]));
+        // The five available actions reproduce the Windows default chords (Ctrl+Alt+Shift) exactly
+        // — incl. KVM Auto, live since v0.2.1 (byte[10]=0x30 confirmed on hardware).
+        Assert.True(WinDefault("C").Matches(parsed.Bindings["inputTypeC"][0]));
+        Assert.True(WinDefault("D").Matches(parsed.Bindings["inputDP"][0]));
+        Assert.True(WinDefault("K").Matches(parsed.Bindings["kvmUSBC"][0]));
+        Assert.True(WinDefault("U").Matches(parsed.Bindings["kvmUpstream"][0]));
+        Assert.True(WinDefault("A").Matches(parsed.Bindings["kvmAuto"][0]));
 
-        // The three UNKNOWN-payload actions have no chord.
-        Assert.Empty(parsed.Bindings["kvmAuto"]);
+        // The two UNKNOWN-payload actions (PBP) have no chord.
         Assert.Empty(parsed.Bindings["pbpOn"]);
         Assert.Empty(parsed.Bindings["pbpOff"]);
 
-        // AltGr advisory list survives from the fixture.
         Assert.Contains("Q", parsed.AltGrAvoidList.Keys);
     }
 
     /// <summary>
-    /// Cross-app contract guard (docs/SETTINGS.md §3.4/§3.8): a mac-written "option" modifier
-    /// loads into the same in-memory chord here via the option↔alt synonym — the load half of
-    /// the interop guarantee (the byte-identity half is DefaultToJson_EqualsSharedFixture).
+    /// Cross-load / mutual-loadability (docs/SETTINGS.md §2.1): the macOS app's default config
+    /// (mods `control, shift, command`) loads here into a valid model. The `command` modifier
+    /// has no Windows equivalent, so it is dropped with a log (§3.4) — the chord survives as
+    /// Ctrl+Shift+key. This proves a Mac-written file is usable on Windows even though the two
+    /// default files are NOT byte-identical (the per-OS default is the documented exception).
+    /// </summary>
+    [Fact]
+    public void MacosFixture_CrossLoads_CommandDroppedRestSurvives()
+    {
+        var path = Path.Combine(AppContext.BaseDirectory, "fixtures", "settings.example.macos.json");
+        Assert.True(File.Exists(path), $"macOS fixture not copied to output: {path}");
+
+        var parsed = HotkeyConfig.Parse(File.ReadAllText(path), overwriteOnRepair: false, out var repaired);
+
+        Assert.True(repaired); // command modifier dropped on Windows → a repair
+        Assert.Equal(HotkeyPreset.CmdShiftCtrl, parsed.Preset);
+
+        // Each default chord loads as Ctrl+Shift+key (command stripped, control+shift kept).
+        var ctrlShift = new[] { HotkeyConfig.ModControl, HotkeyConfig.ModShift };
+        foreach (var (actionId, key) in new[] { ("inputTypeC", "C"), ("inputDP", "D"), ("kvmUSBC", "K"), ("kvmUpstream", "U"), ("kvmAuto", "A") })
+        {
+            var chord = parsed.Bindings[actionId][0];
+            Assert.Equal(key, chord.Key);
+            Assert.True(chord.ModSet.SetEquals(ctrlShift), $"{actionId} should be Ctrl+Shift after command drop");
+            Assert.DoesNotContain(HotkeyConfig.ModCommand, chord.ModSet);
+        }
+    }
+
+    /// <summary>
+    /// True cross-app byte-identity (docs/SETTINGS.md §3.8): the `ctrlShift` preset is
+    /// platform-INDEPENDENT (no command/alt divergence), so BOTH apps emit identical bytes for
+    /// it. We assert the Windows app's ctrlShift output equals the SHARED reference fixture
+    /// `settings.example.ctrlshift.json` byte-for-byte — the macOS side asserts the same file, so
+    /// matching it on both sides proves true cross-app byte-identity (not just shape).
+    /// </summary>
+    [Fact]
+    public void CtrlShiftPreset_IsByteIdenticalToSharedFixture()
+    {
+        var path = Path.Combine(AppContext.BaseDirectory, "fixtures", "settings.example.ctrlshift.json");
+        Assert.True(File.Exists(path), $"Shared ctrlShift fixture not copied to output: {path}");
+
+        var expected = File.ReadAllText(path).Replace("\r\n", "\n"); // tolerate CRLF checkout
+        var config = HotkeyConfig.Default();
+        config.ApplyPreset(HotkeyPreset.CtrlShift);
+        var actual = config.ToJson();
+
+        Assert.DoesNotContain("\r", actual);  // runtime output is LF (pins the v0.2.0 CRLF fix)
+        Assert.Equal(expected, actual);       // byte-for-byte == the shared cross-app reference
+    }
+
+    /// <summary>
+    /// Cross-load (docs/SETTINGS.md §3.4): a mac-written "option" modifier loads into the same
+    /// in-memory chord here via the option↔alt synonym.
     /// </summary>
     [Fact]
     public void MacWrittenOption_LoadsAsSamePhysicalChord()
     {
-        const string macHyper = """
+        const string macOption = """
         {
           "schemaVersion": 1,
-          "preset": "hyper",
+          "preset": "cmdShiftCtrl",
           "launchAtLogin": false,
           "bindings": {
             "inputTypeC": [ { "mods": ["control","option","shift"], "key": "C" } ]
@@ -636,7 +688,7 @@ public class HotkeyConfigTests
         }
         """;
 
-        var parsed = HotkeyConfig.Parse(macHyper, overwriteOnRepair: false, out _);
-        Assert.True(Hyper("C").Matches(parsed.Bindings["inputTypeC"][0]));
+        var parsed = HotkeyConfig.Parse(macOption, overwriteOnRepair: false, out _);
+        Assert.True(WinDefault("C").Matches(parsed.Bindings["inputTypeC"][0]));
     }
 }

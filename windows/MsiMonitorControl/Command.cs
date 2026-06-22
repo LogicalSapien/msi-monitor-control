@@ -51,19 +51,22 @@ public static class Command
     // -------------------------------------------------------------------------
     // KVM switching — feature 0x38 0x3E at indices [5],[6]. Source: kdar/msi-monitor-ctrl,
     // documented in docs/PROTOCOL.md §KVM switching. Byte-identical to the macOS
-    // Command.swift kvmUSBC/kvmUpstream cases. Only byte[10] differs (the position).
+    // Command.swift kvm* cases. Only byte[10] differs (the position).
     //
-    // TODO(verify-on-hardware): the position→port mapping is UNCONFIRMED. We map
-    // USB-C to position 0 (byte[10] = 0x30) and Upstream to position 1 (byte[10] = 0x31);
-    // flip these two if hardware proves otherwise.
-    // TODO(verify-on-hardware): kdar sends these bytes over libusb interrupt OUT; we send
-    // over HID SetReport (stream.Write). The 12-byte payload is expected to be identical —
-    // only the transport differs — but confirm on the real MD342CQP. Do not switch to libusb.
+    // byte[10] position→port mapping CONFIRMED on hardware (user-probed on the MD342CQP, v0.2.1):
+    //   0x30 → Auto      (KvmAuto)
+    //   0x31 → Upstream  (KvmUpstream)
+    //   0x32 → USB-C     (KvmUsbC)
+    //   (0x33 unused — there is no 4th position.)
+    // NOTE: this CORRECTS the earlier provisional guess (0x30=USB-C, 0x31=Upstream) — 0x30 is
+    // actually Auto, and USB-C is 0x32. All three are now live, confirmed values.
+    // Transport: HID SetReport (stream.Write), matching the rest of the app. (kdar uses libusb
+    // interrupt OUT; the 53-byte payload is identical — only the transport differs.)
     // -------------------------------------------------------------------------
 
     private static readonly byte[] PayloadKvmUsbC =
     {
-        0x01, 0x35, 0x62, 0x30, 0x30, 0x38, 0x3E, 0x30, 0x30, 0x30, 0x30, 0x0D,
+        0x01, 0x35, 0x62, 0x30, 0x30, 0x38, 0x3E, 0x30, 0x30, 0x30, 0x32, 0x0D,
         0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
         0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
         0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -79,31 +82,39 @@ public static class Command
         0x00, 0x00, 0x00, 0x00, 0x00,
     };
 
+    private static readonly byte[] PayloadKvmAuto =
+    {
+        0x01, 0x35, 0x62, 0x30, 0x30, 0x38, 0x3E, 0x30, 0x30, 0x30, 0x30, 0x0D,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00,
+    };
+
     /// <summary>
     /// Returns the raw HID report bytes for <paramref name="command"/>.
     /// Bytes are byte-identical to the macOS app and sourced from docs/PROTOCOL.md.
     /// </summary>
     /// <exception cref="NotImplementedException">
-    /// Thrown for commands whose payloads are still UNKNOWN in PROTOCOL.md (PBP On/Off and
-    /// the third KVM mode, KVM Auto). These require hardware reverse-engineering before they
-    /// can be sent safely. Do not catch and swallow — surface as a Needs-decision to the human.
+    /// Thrown for commands whose payloads are still UNKNOWN in PROTOCOL.md (PBP On/Off). These
+    /// require hardware reverse-engineering before they can be sent safely. Do not catch and
+    /// swallow — surface as a Needs-decision to the human.
     /// </exception>
     public static byte[] PayloadFor(CommandKind command) => command switch
     {
         CommandKind.InputTypeC  => (byte[])PayloadInputTypeC.Clone(),
         CommandKind.InputDp     => (byte[])PayloadInputDp.Clone(),
 
-        // KVM switching — confirmed payloads (feature 0x38 0x3E). See docs/PROTOCOL.md §KVM.
+        // KVM switching — all three confirmed on hardware (feature 0x38 0x3E; byte[10]:
+        // USB-C=0x32, Upstream=0x31, Auto=0x30). See docs/PROTOCOL.md §KVM.
         CommandKind.KvmUsbC     => (byte[])PayloadKvmUsbC.Clone(),
         CommandKind.KvmUpstream => (byte[])PayloadKvmUpstream.Clone(),
+        CommandKind.KvmAuto     => (byte[])PayloadKvmAuto.Clone(),
 
-        // UNKNOWN payloads — see docs/PROTOCOL.md §"What is NOT known".
-        // PBP and the third KVM mode (Auto) must be discovered via USB HID capture on
-        // hardware before being filled in here. Do NOT invent bytes. KvmAuto is a third
-        // value of the KVM feature (0x38 0x3E) but its byte[10] value is not yet known.
+        // UNKNOWN payloads — see docs/PROTOCOL.md §"What is NOT known". PBP On/Off must be
+        // discovered via USB HID capture on hardware before being filled in. Do NOT invent bytes.
         CommandKind.PbpOn       => throw new NotImplementedException("PbpOn payload UNKNOWN — see docs/PROTOCOL.md"),
         CommandKind.PbpOff      => throw new NotImplementedException("PbpOff payload UNKNOWN — see docs/PROTOCOL.md"),
-        CommandKind.KvmAuto     => throw new NotImplementedException("KvmAuto payload UNKNOWN — see docs/PROTOCOL.md"),
 
         _ => throw new ArgumentOutOfRangeException(nameof(command), command, null),
     };
@@ -118,7 +129,8 @@ public static class Command
         CommandKind.InputDp     => true,
         CommandKind.KvmUsbC     => true,
         CommandKind.KvmUpstream => true,
-        // PbpOn, PbpOff, KvmAuto — payloads UNKNOWN, unavailable until reverse-engineered.
+        CommandKind.KvmAuto     => true,  // v0.2.1: byte[10]=0x30 confirmed on hardware — now live.
+        // PbpOn, PbpOff — payloads UNKNOWN, unavailable until reverse-engineered.
         _                       => false,
     };
 

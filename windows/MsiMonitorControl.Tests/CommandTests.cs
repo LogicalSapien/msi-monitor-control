@@ -34,9 +34,10 @@ public class CommandTests
     };
 
     // KVM switching — feature 0x38 0x3E. Byte-identical to macOS Command.swift.
+    // byte[10] confirmed on hardware (v0.2.1): USB-C=0x32, Upstream=0x31, Auto=0x30.
     private static readonly byte[] ExpectedKvmUsbC =
     {
-        0x01, 0x35, 0x62, 0x30, 0x30, 0x38, 0x3E, 0x30, 0x30, 0x30, 0x30, 0x0D,
+        0x01, 0x35, 0x62, 0x30, 0x30, 0x38, 0x3E, 0x30, 0x30, 0x30, 0x32, 0x0D,
         0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
         0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
         0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -46,6 +47,15 @@ public class CommandTests
     private static readonly byte[] ExpectedKvmUpstream =
     {
         0x01, 0x35, 0x62, 0x30, 0x30, 0x38, 0x3E, 0x30, 0x30, 0x30, 0x31, 0x0D,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00,
+    };
+
+    private static readonly byte[] ExpectedKvmAuto =
+    {
+        0x01, 0x35, 0x62, 0x30, 0x30, 0x38, 0x3E, 0x30, 0x30, 0x30, 0x30, 0x0D,
         0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
         0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
         0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -153,22 +163,31 @@ public class CommandTests
     }
 
     [Fact]
+    public void KvmAutoPayloadMatchesProtocol()
+    {
+        Assert.Equal(ExpectedKvmAuto, Command.PayloadFor(CommandKind.KvmAuto));
+    }
+
+    [Fact]
     public void KvmPayloadsAre53Bytes()
     {
         Assert.Equal(53, Command.PayloadFor(CommandKind.KvmUsbC).Length);
         Assert.Equal(53, Command.PayloadFor(CommandKind.KvmUpstream).Length);
+        Assert.Equal(53, Command.PayloadFor(CommandKind.KvmAuto).Length);
     }
 
     [Fact]
-    public void KvmUsbCAndUpstreamDifferOnlyAtByte10()
+    public void KvmPayloadsDifferOnlyAtByte10_WithConfirmedMapping()
     {
         var usbC     = Command.PayloadFor(CommandKind.KvmUsbC);
         var upstream = Command.PayloadFor(CommandKind.KvmUpstream);
+        var auto     = Command.PayloadFor(CommandKind.KvmAuto);
 
-        // Byte 10 is the KVM position: 0x30 = USB-C (pos 0), 0x31 = Upstream (pos 1).
-        // TODO(verify-on-hardware): mapping unconfirmed — see docs/PROTOCOL.md §KVM.
-        Assert.Equal(0x30, usbC[10]);
+        // Byte 10 is the KVM position — CONFIRMED on hardware (v0.2.1, MD342CQP):
+        //   Auto = 0x30, Upstream = 0x31, USB-C = 0x32.
+        Assert.Equal(0x32, usbC[10]);
         Assert.Equal(0x31, upstream[10]);
+        Assert.Equal(0x30, auto[10]);
 
         // The feature code lives at bytes[5],[6] and must be the KVM feature 0x38 0x3E
         // (the input feature uses 0x35 0x30 at those same two indices — note 0x35 also
@@ -176,11 +195,12 @@ public class CommandTests
         Assert.Equal(0x38, usbC[5]);
         Assert.Equal(0x3E, usbC[6]);
 
-        // All other bytes must be identical.
+        // All other bytes must be identical across all three KVM payloads.
         for (int i = 0; i < usbC.Length; i++)
         {
             if (i == 10) continue;
             Assert.Equal(usbC[i], upstream[i]);
+            Assert.Equal(usbC[i], auto[i]);
         }
     }
 
@@ -191,12 +211,11 @@ public class CommandTests
     [Theory]
     [InlineData(CommandKind.PbpOn)]
     [InlineData(CommandKind.PbpOff)]
-    [InlineData(CommandKind.KvmAuto)]
     public void PayloadFor_ThrowsNotImplemented_ForUnknownPayloads(CommandKind command)
     {
-        // PBP On/Off and the third KVM mode (Auto) are UNKNOWN — see docs/PROTOCOL.md
-        // §"What is NOT known". The correct behaviour is to throw rather than send
-        // invented bytes to the monitor.
+        // PBP On/Off remain UNKNOWN — see docs/PROTOCOL.md §"What is NOT known". The correct
+        // behaviour is to throw rather than send invented bytes. (KVM Auto is no longer here —
+        // its byte[10]=0x30 was confirmed on hardware in v0.2.1, so it now returns a real payload.)
         Assert.Throws<NotImplementedException>(() => Command.PayloadFor(command));
     }
 
@@ -209,9 +228,9 @@ public class CommandTests
     [InlineData(CommandKind.InputDp,     true)]
     [InlineData(CommandKind.KvmUsbC,     true)]
     [InlineData(CommandKind.KvmUpstream, true)]
+    [InlineData(CommandKind.KvmAuto,     true)]  // v0.2.1: byte[10]=0x30 confirmed → now live.
     [InlineData(CommandKind.PbpOn,       false)]
     [InlineData(CommandKind.PbpOff,      false)]
-    [InlineData(CommandKind.KvmAuto,     false)]
     public void IsAvailable_ReflectsProtocolMdKnowledge(CommandKind command, bool expected)
     {
         Assert.Equal(expected, Command.IsAvailable(command));

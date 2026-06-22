@@ -48,11 +48,14 @@ struct SettingsView: View {
         HStack {
             Text("Scheme")
             Picker("Scheme", selection: presetBinding) {
-                Text("Hyper (⌃⌥⇧)").tag(HotkeyPreset.hyper)
-                Text("Control + Shift (⌃⇧)").tag(HotkeyPreset.ctrlShift)
-                Text("Legacy (⌃⌥⌘)").tag(HotkeyPreset.legacy)
+                // Labels are DERIVED from each preset's macOS modifiers
+                // (`macDisplayName`) so the displayed chord stays honest, e.g.
+                // "Default (⌃⇧⌘)". Windows builds its own labels from its mods.
+                Text(HotkeyPreset.cmdShiftCtrl.macDisplayName).tag(HotkeyPreset.cmdShiftCtrl)
+                Text(HotkeyPreset.ctrlShift.macDisplayName).tag(HotkeyPreset.ctrlShift)
+                Text(HotkeyPreset.legacy.macDisplayName).tag(HotkeyPreset.legacy)
                 if settings.config.preset == .custom {
-                    Text("Custom").tag(HotkeyPreset.custom)
+                    Text(HotkeyPreset.custom.macDisplayName).tag(HotkeyPreset.custom)
                 }
             }
             .labelsHidden()

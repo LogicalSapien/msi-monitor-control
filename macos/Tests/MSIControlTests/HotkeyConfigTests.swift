@@ -24,12 +24,13 @@ final class HotkeyConfigTests: XCTestCase {
     func testDefaultConfigShape() {
         let def = HotkeyConfig.makeDefault()
         XCTAssertEqual(def.schemaVersion, kHotkeyConfigSchemaVersion)
-        XCTAssertEqual(def.preset, .hyper)
+        XCTAssertEqual(def.preset, .cmdShiftCtrl)
         XCTAssertFalse(def.launchAtLogin)
-        // Available commands get a hyper chord on their default key; UNKNOWN ones
-        // are bound to an empty array (no chord).
-        XCTAssertEqual(def.bindings["inputTypeC"], [HotkeyChord(mods: [.control, .option, .shift], key: "C")])
-        XCTAssertEqual(def.bindings["kvmAuto"], [])
+        // Available commands get the default ⌃⇧⌘ chord on their default key; UNKNOWN
+        // ones are bound to an empty array (no chord).
+        XCTAssertEqual(def.bindings["inputTypeC"], [HotkeyChord(mods: [.control, .shift, .command], key: "C")])
+        // KVM Auto is now available (hardware-confirmed payload) → it gets a chord.
+        XCTAssertEqual(def.bindings["kvmAuto"], [HotkeyChord(mods: [.control, .shift, .command], key: "A")])
         XCTAssertEqual(def.bindings["pbpOn"], [])
         // Every command has a key in the map.
         for command in Command.allCases {
@@ -50,7 +51,7 @@ final class HotkeyConfigTests: XCTestCase {
         // A Windows-written config may spell the modifier "alt"; we must read it.
         let json = """
         {
-          "schemaVersion": 1, "preset": "hyper", "launchAtLogin": false,
+          "schemaVersion": 1, "preset": "cmdShiftCtrl", "launchAtLogin": false,
           "bindings": { "inputTypeC": [ { "mods": ["control", "alt", "shift"], "key": "C" } ] },
           "altGrAvoidList": { "keys": ["Q"], "note": "x" }
         }
@@ -59,53 +60,100 @@ final class HotkeyConfigTests: XCTestCase {
         XCTAssertEqual(config.bindings["inputTypeC"]?.first?.mods, [.control, .option, .shift])
     }
 
-    /// Path to the shared canonical fixture (docs/fixtures/settings.example.json).
-    private func fixtureURL() -> URL {
+    /// Repo `docs/fixtures/` directory.
+    private func fixturesDir() -> URL {
         URL(fileURLWithPath: #filePath)            // …/Tests/MSIControlTests/HotkeyConfigTests.swift
             .deletingLastPathComponent()            // …/Tests/MSIControlTests
             .deletingLastPathComponent()            // …/Tests
             .deletingLastPathComponent()            // …/macos
             .deletingLastPathComponent()            // repo root
-            .appendingPathComponent("docs/fixtures/settings.example.json")
+            .appendingPathComponent("docs/fixtures")
     }
 
-    /// ONE-OFF FIXTURE GENERATOR. Set REGEN_FIXTURE=1 to rewrite the canonical
-    /// fixture from the encoder, then unset it. Skipped in normal runs.
+    /// The macOS canonical fixture (the default preset is per-OS — Mac writes
+    /// `command` — so each platform has its own fixture; SETTINGS.md §2.1/§3.8).
+    private func macFixtureURL() -> URL {
+        fixturesDir().appendingPathComponent("settings.example.macos.json")
+    }
+
+    /// The SHARED platform-independent fixture: the default config under the
+    /// `ctrlShift` preset. Both apps must emit this byte-for-byte (mods are
+    /// `["control","shift"]`, identical on Mac and Windows) — the one genuine
+    /// cross-app byte-identity guarantee (SETTINGS.md §2.1).
+    private func ctrlShiftFixtureURL() -> URL {
+        fixturesDir().appendingPathComponent("settings.example.ctrlshift.json")
+    }
+
+    private func ctrlShiftConfig() -> HotkeyConfig {
+        var c = HotkeyConfig.makeDefault()
+        c.applyPreset(.ctrlShift)
+        return c
+    }
+
+    /// ONE-OFF FIXTURE GENERATOR. Set REGEN_FIXTURE=1 to rewrite the macOS + shared
+    /// ctrlShift fixtures from the encoder, then unset it. Skipped in normal runs.
     func testRegenerateFixtureWhenRequested() throws {
         try XCTSkipUnless(ProcessInfo.processInfo.environment["REGEN_FIXTURE"] == "1",
-                          "set REGEN_FIXTURE=1 to regenerate the canonical fixture")
-        let data = try HotkeyConfig.makeDefault().jsonData()
-        try data.write(to: fixtureURL())
+                          "set REGEN_FIXTURE=1 to regenerate the fixtures")
+        try HotkeyConfig.makeDefault().jsonData().write(to: macFixtureURL())
+        try ctrlShiftConfig().jsonData().write(to: ctrlShiftFixtureURL())
     }
 
     /// The canonical contract (SETTINGS.md §3.8): the default config's `save()` bytes
-    /// MUST equal the shared fixture byte-for-byte. The Windows app emits the same
-    /// bytes from its custom writer, so the fixture is the cross-app ground truth.
+    /// MUST equal the macOS fixture byte-for-byte. (The default preset is per-OS, so
+    /// this is the macOS fixture; Windows has its own.)
     func testDefaultSaveBytesEqualFixtureBytes() throws {
-        let url = fixtureURL()
+        let url = macFixtureURL()
         try XCTSkipUnless(FileManager.default.fileExists(atPath: url.path),
-                          "fixture not found at \(url.path)")
+                          "macOS fixture not found at \(url.path)")
         let produced = try HotkeyConfig.makeDefault().jsonData()
         let fixture = try Data(contentsOf: url)
         XCTAssertEqual(produced, fixture,
-                       "default save() must be byte-identical to the canonical fixture (SETTINGS.md §3.8)")
+                       "default save() must be byte-identical to the macOS fixture (SETTINGS.md §3.8)")
     }
 
-    func testFixtureFileParsesToDefaults() throws {
-        // The shared fixture (docs/fixtures/settings.example.json) must parse and
-        // reproduce the default bindings — the cross-app contract check.
-        let fixture = URL(fileURLWithPath: #filePath)            // …/Tests/MSIControlTests/HotkeyConfigTests.swift
-            .deletingLastPathComponent()                          // …/Tests/MSIControlTests
-            .deletingLastPathComponent()                          // …/Tests
-            .deletingLastPathComponent()                          // …/macos
-            .deletingLastPathComponent()                          // repo root
-            .appendingPathComponent("docs/fixtures/settings.example.json")
-        try XCTSkipUnless(FileManager.default.fileExists(atPath: fixture.path),
-                          "fixture not found at \(fixture.path)")
-        let data = try Data(contentsOf: fixture)
+    /// Platform-INDEPENDENT cross-app byte check (SETTINGS.md §2.1): the `ctrlShift`
+    /// preset has the same mods on both platforms, so a config under it is genuinely
+    /// byte-identical across apps. This asserts `default→ctrlShift save()` equals the
+    /// SHARED fixture byte-for-byte — the Windows app points its own test at the SAME
+    /// committed file, so byte-equality of both against it proves cross-app
+    /// byte-identity. (Also a sanity check: no platform-specific mod token leaks in.)
+    func testCtrlShiftPresetIsByteIdenticalToSharedFixture() throws {
+        let url = ctrlShiftFixtureURL()
+        try XCTSkipUnless(FileManager.default.fileExists(atPath: url.path),
+                          "shared ctrlShift fixture not found at \(url.path)")
+        let produced = try ctrlShiftConfig().jsonData()
+        let fixture = try Data(contentsOf: url)
+        XCTAssertEqual(produced, fixture,
+                       "ctrlShift save() must be byte-identical to the shared cross-app fixture (SETTINGS.md §2.1)")
+        let text = String(decoding: produced, as: UTF8.self)
+        XCTAssertFalse(text.contains("command"), "ctrlShift must not write a platform-specific 'command'")
+        XCTAssertFalse(text.contains("\"alt\""), "ctrlShift must not write 'alt'")
+    }
+
+    func testMacFixtureParsesToDefaults() throws {
+        let url = macFixtureURL()
+        try XCTSkipUnless(FileManager.default.fileExists(atPath: url.path),
+                          "macOS fixture not found at \(url.path)")
+        let data = try Data(contentsOf: url)
         let config = try JSONDecoder().decode(HotkeyConfig.self, from: data)
         XCTAssertEqual(config.bindings, HotkeyConfig.makeDefault().bindings)
-        XCTAssertEqual(config.preset, .hyper)
+        XCTAssertEqual(config.preset, .cmdShiftCtrl)
+    }
+
+    /// Mutual-loadability for the per-OS default: the WINDOWS fixture (mods
+    /// `control, alt, shift`) must load in the macOS app and, via the alt→option
+    /// synonym, produce the equivalent model. Proves cross-app interop even though
+    /// the per-OS default isn't byte-identical across platforms.
+    func testWindowsFixtureLoadsViaSynonym() throws {
+        let url = fixturesDir().appendingPathComponent("settings.example.windows.json")
+        try XCTSkipUnless(FileManager.default.fileExists(atPath: url.path),
+                          "windows fixture not found at \(url.path)")
+        let (config, _) = HotkeyConfig.load(from: url)
+        // alt normalises to option, so inputTypeC becomes ⌃⌥⇧C in our model.
+        XCTAssertEqual(config.bindings["inputTypeC"],
+                       [HotkeyChord(mods: [.control, .option, .shift], key: "C")],
+                       "Windows 'alt' must load as 'option' via the synonym")
     }
 
     // MARK: Load / fallback (SETTINGS.md §4)
@@ -136,7 +184,7 @@ final class HotkeyConfigTests: XCTestCase {
         let url = tempURL(); defer { cleanup(url) }
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         let newer = """
-        { "schemaVersion": 999, "preset": "hyper", "launchAtLogin": true,
+        { "schemaVersion": 999, "preset": "cmdShiftCtrl", "launchAtLogin": true,
           "bindings": {}, "altGrAvoidList": { "keys": [], "note": "" },
           "futureField": 42 }
         """.data(using: .utf8)!
@@ -165,15 +213,15 @@ final class HotkeyConfigTests: XCTestCase {
 
     func testDuplicateChordIsDetected() {
         let config = HotkeyConfig.makeDefault()
-        // inputDP defaults to ⌃⌥⇧D — proposing it for inputTypeC is a duplicate.
-        let clash = HotkeyChord(mods: [.control, .option, .shift], key: "D")
+        // inputDP defaults to ⌃⇧⌘D — proposing it for inputTypeC is a duplicate.
+        let clash = HotkeyChord(mods: [.control, .shift, .command], key: "D")
         let issues = config.validate(chord: clash, forAction: "inputTypeC")
         XCTAssertTrue(issues.contains(.duplicate(existingActionId: "inputDP")))
     }
 
     func testRebindingSameActionToOwnChordIsNotADuplicate() {
         let config = HotkeyConfig.makeDefault()
-        let same = HotkeyChord(mods: [.control, .option, .shift], key: "C")
+        let same = HotkeyChord(mods: [.control, .shift, .command], key: "C")
         let issues = config.validate(chord: same, forAction: "inputTypeC")
         XCTAssertFalse(issues.contains(where: { if case .duplicate = $0 { return true }; return false }))
     }
@@ -215,8 +263,8 @@ final class HotkeyConfigTests: XCTestCase {
     }
 
     func testInferredPresetDetectsCustom() {
-        var config = HotkeyConfig.makeDefault()       // hyper
-        XCTAssertEqual(config.inferredPreset(), .hyper)
+        var config = HotkeyConfig.makeDefault()       // cmdShiftCtrl
+        XCTAssertEqual(config.inferredPreset(), .cmdShiftCtrl)
         // Hand-edit one binding to an off-preset chord.
         config.bindings["inputTypeC"] = [HotkeyChord(mods: [.command], key: "C")]
         XCTAssertEqual(config.inferredPreset(), .custom)
@@ -256,7 +304,7 @@ final class HotkeyConfigTests: XCTestCase {
         // inputTypeC is valid. The bad chord must be dropped, the rest kept.
         let json = """
         {
-          "schemaVersion": 1, "preset": "hyper", "launchAtLogin": false,
+          "schemaVersion": 1, "preset": "cmdShiftCtrl", "launchAtLogin": false,
           "bindings": {
             "inputTypeC": [ { "mods": ["control","option","shift"], "key": "C" } ],
             "inputDP":    [ { "mods": ["control","option","shift"], "key": "D" },
@@ -278,7 +326,7 @@ final class HotkeyConfigTests: XCTestCase {
         let url = tempURL(); defer { cleanup(url) }
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         let json = """
-        { "schemaVersion": 1, "preset": "hyper", "launchAtLogin": false,
+        { "schemaVersion": 1, "preset": "cmdShiftCtrl", "launchAtLogin": false,
           "bindings": { "inputTypeC": [ { "mods": ["control","option","shift"], "key": "C" } ] } }
         """.data(using: .utf8)!
         try json.write(to: url)
@@ -293,7 +341,7 @@ final class HotkeyConfigTests: XCTestCase {
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         // A two-character key must be rejected (Carbon would silently use only "A").
         let json = """
-        { "schemaVersion": 1, "preset": "hyper", "launchAtLogin": false,
+        { "schemaVersion": 1, "preset": "cmdShiftCtrl", "launchAtLogin": false,
           "bindings": { "inputTypeC": [ { "mods": ["control","shift"], "key": "AB" } ] },
           "altGrAvoidList": { "keys": ["Q"], "note": "x" } }
         """.data(using: .utf8)!

@@ -114,7 +114,10 @@ final class SettingsStore: ObservableObject {
                                             persist: { [weak self] in self?.persist($0) })
         config = result.liveConfig
         osRejectedActions = result.rejectedActions
-        if !result.committed {
+        if result.committed {
+            DebugLog.shared.info("settings committed (preset \(result.liveConfig.preset.rawValue))")
+        } else {
+            DebugLog.shared.warn("settings change rolled back — OS rejected: \(result.rejectedActions.joined(separator: ","))")
             objectWillChange.send()   // refresh UI to show the conflict + reverted state
         }
         return result.committed
@@ -124,7 +127,7 @@ final class SettingsStore: ObservableObject {
         do {
             try c.save(to: fileURL)
         } catch {
-            print("[Settings] save failed: \(error)")
+            DebugLog.shared.error("settings save failed: \(error.localizedDescription)")
         }
     }
 

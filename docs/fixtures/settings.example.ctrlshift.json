@@ -1,13 +1,12 @@
 {
   "schemaVersion": 1,
-  "preset": "hyper",
+  "preset": "ctrlShift",
   "launchAtLogin": false,
   "bindings": {
     "inputTypeC": [
       {
         "mods": [
           "control",
-          "option",
           "shift"
         ],
         "key": "C"
@@ -17,7 +16,6 @@
       {
         "mods": [
           "control",
-          "option",
           "shift"
         ],
         "key": "D"
@@ -27,7 +25,6 @@
       {
         "mods": [
           "control",
-          "option",
           "shift"
         ],
         "key": "K"
@@ -37,13 +34,20 @@
       {
         "mods": [
           "control",
-          "option",
           "shift"
         ],
         "key": "U"
       }
     ],
-    "kvmAuto": [],
+    "kvmAuto": [
+      {
+        "mods": [
+          "control",
+          "shift"
+        ],
+        "key": "A"
+      }
+    ],
     "pbpOn": [],
     "pbpOff": []
   },

@@ -38,10 +38,10 @@ final class CommandTests: XCTestCase {
 
     // MARK: - KVM payloads (from kdar/msi-monitor-ctrl, feature 0x38 0x3E)
 
-    /// KVM → USB-C: feature 0x38 0x3E, value 0x30 (position 0).
+    /// KVM → USB-C: feature 0x38 0x3E, value 0x32 (hardware-confirmed via kvm-probe).
     func testKVMUSBCPayloadMatchesProtocol() {
         let expected: [UInt8] = [
-            0x01, 0x35, 0x62, 0x30, 0x30, 0x38, 0x3E, 0x30, 0x30, 0x30, 0x30, 0x0D,
+            0x01, 0x35, 0x62, 0x30, 0x30, 0x38, 0x3E, 0x30, 0x30, 0x30, 0x32, 0x0D,
             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -74,17 +74,23 @@ final class CommandTests: XCTestCase {
                      "PBP Off payload is unknown — must not ship invented bytes")
     }
 
-    /// KVM → Auto: feature is known (0x38 0x3E) but byte[10] is not — payload must
-    /// stay nil until captured on hardware. Never invent the value byte.
-    func testKVMAutoPayloadIsNil() {
-        XCTAssertNil(Command.kvmAuto.payload,
-                     "KVM Auto value byte is unknown — must not ship invented bytes")
+    /// KVM → Auto: feature 0x38 0x3E, value 0x30 (hardware-confirmed via kvm-probe;
+    /// was the long-UNKNOWN value, now known).
+    func testKVMAutoPayloadMatchesProtocol() {
+        let expected: [UInt8] = [
+            0x01, 0x35, 0x62, 0x30, 0x30, 0x38, 0x3E, 0x30, 0x30, 0x30, 0x30, 0x0D,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00
+        ]
+        XCTAssertEqual(Command.kvmAuto.payload, expected)
     }
 
     // MARK: - Payload length invariant for known commands
 
     func testKnownPayloadsAre53Bytes() {
-        let knownCommands: [Command] = [.inputTypeC, .inputDP, .kvmUSBC, .kvmUpstream]
+        let knownCommands: [Command] = [.inputTypeC, .inputDP, .kvmUSBC, .kvmUpstream, .kvmAuto]
         for command in knownCommands {
             XCTAssertEqual(command.payload?.count, 53,
                            "\(command) payload must be 53 bytes (report ID + 52 data bytes)")
@@ -117,8 +123,10 @@ final class CommandTests: XCTestCase {
         XCTAssertFalse(Command.pbpOff.isAvailable)
     }
 
-    func testKVMAutoIsUnavailable() {
-        XCTAssertFalse(Command.kvmAuto.isAvailable)
+    func testKVMAutoIsAvailable() {
+        // KVM Auto now has a hardware-confirmed payload (byte[10]=0x30), so it is a
+        // normal available command (menu item + hotkey).
+        XCTAssertTrue(Command.kvmAuto.isAvailable)
     }
 
     // MARK: - Default hotkey key (seed for the default config)

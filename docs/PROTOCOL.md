@@ -132,32 +132,24 @@ Sourced from a second reference implementation,
 targets the same monitor (VID `0x1462` / PID `0x3FA4`). KVM uses the 2-byte
 feature code `0x38 0x3E` at indices [5],[6] (see **Command grammar** below).
 
-| Action          | Position | Payload (12 bytes, zero-padded)                       |
+**HARDWARE-CONFIRMED mapping (MD342CQP, 2026-06-22, via `tools/kvm-probe`):**
+byte[10] selects the KVM port. The user cycled 0x30–0x33 on the real monitor:
+
+| Action          | byte[10] | Payload (12 bytes, zero-padded)                       |
 |:----------------|:---------|:------------------------------------------------------|
-| KVM (pos 0)     | `0`      | `01 35 62 30 30 38 3E 30 30 30 30 0D`                 |
-| KVM (pos 1)     | `1`      | `01 35 62 30 30 38 3E 30 30 30 31 0D`                 |
-| KVM (Auto)      | `?`      | `UNKNOWN — byte[10] value not yet captured`           |
+| KVM → Auto      | `0x30`   | `01 35 62 30 30 38 3E 30 30 30 30 0D`                 |
+| KVM → Upstream  | `0x31`   | `01 35 62 30 30 38 3E 30 30 30 31 0D`                 |
+| KVM → USB-C     | `0x32`   | `01 35 62 30 30 38 3E 30 30 30 32 0D`                 |
+| (no 4th port)   | `0x33`   | no change observed                                    |
 
-**TODO confirm on hardware: which position is USB-C vs Upstream.** We do not yet
-know whether position `0` or `1` is USB-C. Our current mapping (unconfirmed) is:
-
-| Action          | Position used | Confidence |
-|:----------------|:--------------|:-----------|
-| KVM → USB-C     | `0`           | unconfirmed — flip if wrong |
-| KVM → Upstream  | `1`           | unconfirmed — flip if wrong |
-| KVM → Auto      | `UNKNOWN`     | byte[10] value not captured — see note below |
-
-> **KVM → Auto — value byte UNKNOWN.** The feature code `0x38 0x3E` is known, but
-> the byte[10] value that selects the monitor's automatic-KVM position has not been
-> captured. We do **not** invent it. During the hardware-probing session, trigger
-> "Auto" from the official app (or sweep byte[10] over `0x30`–`0x3f` with feature
-> `0x38 0x3E` held) and record the value here. Until then `Command.kvmAuto` returns
-> `payload = nil`, so it is hidden from the menu and its `⌃⌥⌘A` hotkey is not
-> registered.
+This **corrects** the earlier reference-guessed mapping (USB-C was wrongly `0x30`,
+which is actually **Auto**) and supplies the previously-UNKNOWN **Auto** value
+(`0x30`). All three are now live commands (`Command.kvmAuto` is no longer `nil`;
+its hotkey is `⌃⇧⌘A`). Confirmed via `swift tools/kvm-probe/kvm-probe.swift`.
 
 Full byte arrays:
 
-**KVM → USB-C (position 0):**
+**KVM → Auto (byte[10] = 0x30):**
 ```
 0x01, 0x35, 0x62, 0x30, 0x30, 0x38, 0x3E, 0x30, 0x30, 0x30, 0x30, 0x0D,
 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -166,7 +158,7 @@ Full byte arrays:
 0x00, 0x00, 0x00, 0x00, 0x00
 ```
 
-**KVM → Upstream (position 1):**
+**KVM → Upstream (byte[10] = 0x31):**
 ```
 0x01, 0x35, 0x62, 0x30, 0x30, 0x38, 0x3E, 0x30, 0x30, 0x30, 0x31, 0x0D,
 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -175,14 +167,20 @@ Full byte arrays:
 0x00, 0x00, 0x00, 0x00, 0x00
 ```
 
-> **TODO verify-on-hardware: KVM via HID SetReport.** The kdar reference sends
-> these bytes over **libusb interrupt OUT** endpoints (it claims the interface and
-> detaches the kernel driver). Our app instead sends via **HID SetReport**
-> (`IOHIDDeviceSetReport` on macOS, `stream.Write` on Windows). The 12-byte payload
-> is expected to be identical; only the transport differs. Because our input
-> switching already works over HID SetReport with the same grammar, KVM very
-> likely works the same way — but this must be confirmed on real hardware. **Do
-> not switch the transport to libusb; keep HID.**
+**KVM → USB-C (byte[10] = 0x32):**
+```
+0x01, 0x35, 0x62, 0x30, 0x30, 0x38, 0x3E, 0x30, 0x30, 0x30, 0x32, 0x0D,
+0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+0x00, 0x00, 0x00, 0x00, 0x00
+```
+
+> **KVM transport: HID SetReport (confirmed working).** The kdar reference sends KVM
+> bytes over libusb interrupt OUT; we send via **HID SetReport**
+> (`IOHIDDeviceSetReport` on macOS, `stream.Write` on Windows). Hardware-confirmed:
+> the above payloads switch KVM correctly over HID SetReport. **Do not switch the
+> transport to libusb; keep HID.**
 
 ### PBP (Picture-by-Picture)
 
@@ -231,25 +229,25 @@ code with `// TODO(verify-on-hardware)` near the send call in both apps.
 
 ### What is NOT known (Needs-decision)
 
-The following actions are **not implemented in the reference** and their payloads
-are unknown:
+Only the **PBP** payloads remain unknown:
 
 - **PBP On / PBP Off** — the reference README mentions "KVM like official MSI
-  Productivity Intelligence" but the source only implements input switching.
-  PBP payloads are not present.
-- **KVM → USB-C / KVM → Upstream** — similarly absent from the reference source.
+  Productivity Intelligence" but the source only implements input switching; PBP
+  payloads are not present, and the PBP feature code has not been captured.
 
-To discover these payloads, one approach is:
+(KVM → USB-C / Upstream / Auto were unknown/reference-guessed but are now
+**hardware-confirmed** on the MD342CQP — see the KVM switching section above.)
+
+To discover the PBP payloads, one approach is:
 1. On Windows, run the official **MSI Productivity Intelligence** software while
-   capturing USB HID traffic with Wireshark + USBPcap.
-2. Trigger PBP toggle and KVM switch from the official app and observe the HID
-   output reports.
+   capturing USB HID traffic with Wireshark + USBPcap; OR
+2. Use `tools/hid-probe` to sweep the 2-byte feature code at indices [5],[6] while
+   toggling PBP from the OSD and watching for the picture to split.
 3. Record the byte arrays here.
 
-Until those payloads are confirmed, the macOS and Windows apps will expose only
-the two known input-switching actions (Type-C and DP) in the menu/hotkeys. The
-`Command` enum stubs `pbpOn`, `pbpOff`, `kvmUSBC`, and `kvmUpstream` but these
-are marked unavailable pending hardware reverse-engineering.
+Until the PBP payloads are confirmed, `Command.pbpOn` / `pbpOff` return `payload =
+nil` and are marked unavailable (hidden from the menu, no hotkey). All input and KVM
+actions are live.
 
 ### Reference
 

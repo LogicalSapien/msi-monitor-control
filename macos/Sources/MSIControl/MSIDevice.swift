@@ -129,6 +129,7 @@ public final class MSIDevice {
         // Retain the device handle. The manager (closed by `defer`) does not keep
         // it alive — `hidDevice` does, via ARC's bridge of the CFType.
         hidDevice = device
+        if !isConnected { DebugLog.shared.info("device located (MD342CQP)") }
         isConnected = true
         // Open state is established at send time (`attemptSend` → `ensureDeviceOpen`),
         // so the open and the SetReport always happen in the same call context.
@@ -174,6 +175,7 @@ public final class MSIDevice {
     @discardableResult
     public func send(_ command: Command) -> Result<Void, MSIError> {
         guard let bytes = command.payload else {
+            DebugLog.shared.warn("send(\(command.actionId)): payload unavailable — not sent")
             return .failure(.payloadUnavailable)
         }
 
@@ -188,14 +190,17 @@ public final class MSIDevice {
             locateDevice()
         }
         guard hidDevice != nil else {
+            DebugLog.shared.warn("send(\(command.actionId)): device not found")
             return .failure(.deviceNotFound)
         }
 
         // First attempt.
         let ret = attemptSend(bytes)
         if ret == kIOReturnSuccess {
+            DebugLog.shared.info("send(\(command.actionId)): OK")
             return .success(())
         }
+        DebugLog.shared.warn("send(\(command.actionId)): first attempt failed IOReturn 0x\(String(ret, radix: 16)) — re-locating + retrying once")
 
         // Backstop: ANY first-attempt failure triggers exactly one re-locate-and-
         // retry. We deliberately do NOT filter on specific IOReturn codes — a fresh
@@ -210,13 +215,16 @@ public final class MSIDevice {
         // handle and SetReports in the same call context.
         locateDevice()
         guard hidDevice != nil else {
+            DebugLog.shared.warn("send(\(command.actionId)): re-locate found no device — deviceNotFound")
             return .failure(.deviceNotFound)
         }
         let retryRet = attemptSend(bytes)
         if retryRet == kIOReturnSuccess {
+            DebugLog.shared.info("send(\(command.actionId)): OK after retry")
             return .success(())
         }
 
+        DebugLog.shared.error("send(\(command.actionId)): FAILED after retry — IOReturn 0x\(String(retryRet, radix: 16))")
         return .failure(.sendFailed("IOReturn 0x\(String(retryRet, radix: 16))"))
     }
 

@@ -22,13 +22,23 @@
   </ItemGroup>
 
   <!--
-    Copy the shared cross-platform fixture into the test output so the round-trip test
-    (parse settings.example.json → reproduce the default bindings) can read it at runtime.
-    The Link keeps it at a stable relative path (fixtures/settings.example.json) regardless
-    of the source layout. This is the same §7 example the macOS app tests against.
+    Copy BOTH per-platform fixtures into the test output (v0.2.1 split — the default config
+    differs per OS, so there is no single shared fixture; see docs/SETTINGS.md):
+      • settings.example.windows.json — THIS app's canonical default output (byte-equality test);
+      • settings.example.macos.json   — the macOS app's default, parsed here to prove a
+        Mac-written config loads into the Windows model (cross-load / mutual-loadability).
+    The Link keeps them at stable relative paths under fixtures/ regardless of source layout.
   -->
   <ItemGroup>
-    <Content Include="..\..\docs\fixtures\settings.example.json" Link="fixtures\settings.example.json">
+    <Content Include="..\..\docs\fixtures\settings.example.windows.json" Link="fixtures\settings.example.windows.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="..\..\docs\fixtures\settings.example.macos.json" Link="fixtures\settings.example.macos.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <!-- The platform-INDEPENDENT ctrlShift reference: BOTH apps emit identical bytes for it,
+         so this single shared file is the genuine cross-app byte-identity check. -->
+    <Content Include="..\..\docs\fixtures\settings.example.ctrlshift.json" Link="fixtures\settings.example.ctrlshift.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
   </ItemGroup>

@@ -6,7 +6,7 @@ namespace MsiMonitorControl;
 /// The settings window (docs/SETTINGS.md §8(b).4) — the Windows counterpart of the macOS
 /// SwiftUI settings surface. Provides:
 /// <list type="bullet">
-/// <item>a preset dropdown (Hyper / Ctrl+Shift / Legacy / Custom);</item>
+/// <item>a preset dropdown (Default / Ctrl+Shift / Legacy / Custom);</item>
 /// <item>one row per available action with its current chord(s), click-to-rebind, and
 ///   add/remove for extra hotkeys;</item>
 /// <item>inline conflict (duplicate / OS-reserved) and AltGr advisory surfacing;</item>
@@ -31,10 +31,10 @@ internal sealed class SettingsForm : Form
 
     private static readonly (HotkeyPreset Preset, string Label)[] PresetChoices =
     {
-        (HotkeyPreset.Hyper,     "Hyper (Ctrl+Alt+Shift)"),
-        (HotkeyPreset.CtrlShift, "Ctrl+Shift"),
-        (HotkeyPreset.Legacy,    "Legacy (Ctrl+Alt)"),
-        (HotkeyPreset.Custom,    "Custom"),
+        (HotkeyPreset.CmdShiftCtrl, "Default (Ctrl+Alt+Shift)"),
+        (HotkeyPreset.CtrlShift,    "Ctrl+Shift"),
+        (HotkeyPreset.Legacy,       "Legacy (Ctrl+Alt)"),
+        (HotkeyPreset.Custom,       "Custom"),
     };
 
     public SettingsForm(HotkeyConfig config)

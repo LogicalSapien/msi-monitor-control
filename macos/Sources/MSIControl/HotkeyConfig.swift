@@ -18,22 +18,52 @@ public let kHotkeyConfigSchemaVersion = 1
 /// (see SETTINGS.md §3.2, "apply-and-bake"). `custom` is set automatically when a
 /// binding no longer matches any named preset; it is never chosen directly.
 public enum HotkeyPreset: String, Codable, CaseIterable, Sendable {
-    case hyper       // ⌃⌥⇧ / Ctrl+Alt+Shift — default
-    case ctrlShift   // ⌃⇧ / Ctrl+Shift
-    case legacy      // mac ⌃⌥⌘ / win Ctrl+Alt
-    case custom      // bindings diverge from every named preset
+    case cmdShiftCtrl  // DEFAULT — mac ⌃⇧⌘ / win Ctrl+Alt+Shift (per-OS mods)
+    case ctrlShift     // ⌃⇧ / Ctrl+Shift (platform-independent)
+    case legacy        // mac ⌃⌥⌘ / win Ctrl+Alt (per-OS mods)
+    case custom        // bindings diverge from every named preset
 
-    /// The modifier set this preset applies on macOS. `legacy` is the only one
-    /// whose modifiers differ per platform (it includes Command on macOS).
-    /// `custom` has no canonical modifiers (callers keep the existing per-binding
-    /// mods), so it returns `nil`.
+    /// The modifier set this preset applies on macOS. `cmdShiftCtrl` (the default)
+    /// and `legacy` are per-platform: they include Command on macOS (and the
+    /// Windows app substitutes Alt where macOS uses Command/Option — see
+    /// SETTINGS.md §3.2). `custom` has no canonical modifiers (callers keep the
+    /// existing per-binding mods), so it returns `nil`.
     public var macModifiers: Set<HotkeyModifier>? {
         switch self {
-        case .hyper:     return [.control, .option, .shift]
-        case .ctrlShift: return [.control, .shift]
-        case .legacy:    return [.control, .option, .command]
-        case .custom:    return nil
+        case .cmdShiftCtrl: return [.control, .shift, .command]
+        case .ctrlShift:    return [.control, .shift]
+        case .legacy:       return [.control, .option, .command]
+        case .custom:       return nil
         }
+    }
+
+    /// Whether this preset's modifiers differ per platform (Mac vs Windows). For
+    /// these, byte-identity of the saved config across platforms does NOT hold —
+    /// only within a platform (SETTINGS.md §2.1/§3.8). `ctrlShift` is the only
+    /// platform-independent named preset.
+    public var isPerPlatform: Bool {
+        switch self {
+        case .cmdShiftCtrl, .legacy: return true
+        case .ctrlShift, .custom:    return false
+        }
+    }
+
+    /// The macOS dropdown label, with the chord glyphs DERIVED from this platform's
+    /// actual modifiers (so it stays honest if the mapping changes). Windows builds
+    /// its own label the same way from its mods — the preset KEY is shared, the
+    /// displayed chord is platform-specific (SETTINGS.md §3.2).
+    public var macDisplayName: String {
+        let base: String
+        switch self {
+        case .cmdShiftCtrl: base = "Default"
+        case .ctrlShift:    base = "Control + Shift"
+        case .legacy:       base = "Legacy"
+        case .custom:       return "Custom"
+        }
+        guard let mods = macModifiers else { return base }
+        // Reuse the canonical glyph order via a throwaway chord display.
+        let glyphs = HotkeyChord(mods: mods, key: "").display   // e.g. "⌃⇧⌘"
+        return "\(base) (\(glyphs))"
     }
 }
 
@@ -113,8 +143,8 @@ public struct HotkeyChord: Codable, Equatable, Hashable, Sendable {
         try c.encode(key, forKey: .key)
     }
 
-    /// The human-readable chord, e.g. `⌃⌥⇧C` (SETTINGS.md §3.7 — derived, never
-    /// stored). Glyphs are emitted in the canonical macOS order ⌃ ⌥ ⇧ ⌘.
+    /// The human-readable chord, e.g. the default `⌃⇧⌘C` (SETTINGS.md §3.7 —
+    /// derived, never stored). Glyphs are emitted in the canonical order ⌃ ⌥ ⇧ ⌘.
     public var display: String {
         var s = ""
         if mods.contains(.control) { s += "⌃" }
@@ -163,7 +193,7 @@ public struct HotkeyConfig: Codable, Equatable, Sendable {
     public var altGrAvoidList: AltGrAvoidList
 
     public init(schemaVersion: Int = kHotkeyConfigSchemaVersion,
-                preset: HotkeyPreset = .hyper,
+                preset: HotkeyPreset = .cmdShiftCtrl,
                 launchAtLogin: Bool = false,
                 bindings: [String: [HotkeyChord]],
                 altGrAvoidList: AltGrAvoidList = .builtIn) {
@@ -176,11 +206,11 @@ public struct HotkeyConfig: Codable, Equatable, Sendable {
 
     // MARK: Defaults
 
-    /// The built-in default config: `hyper` preset, default keys from each
-    /// available command, UNKNOWN-payload commands left unbound (empty array).
-    /// This is what ships on first run and what we fall back to (SETTINGS.md §4).
+    /// The built-in default config: `cmdShiftCtrl` preset (Mac ⌃⇧⌘), default keys
+    /// from each available command, UNKNOWN-payload commands left unbound (empty
+    /// array). This is what ships on first run and what we fall back to (§4).
     public static func makeDefault() -> HotkeyConfig {
-        let mods: Set<HotkeyModifier> = HotkeyPreset.hyper.macModifiers ?? [.control, .option, .shift]
+        let mods: Set<HotkeyModifier> = HotkeyPreset.cmdShiftCtrl.macModifiers ?? [.control, .shift, .command]
         var bindings: [String: [HotkeyChord]] = [:]
         for command in Command.allCases {
             if command.isAvailable {
@@ -561,7 +591,7 @@ public struct HotkeyConfig: Codable, Equatable, Sendable {
     public func inferredPreset() -> HotkeyPreset {
         let allMods = bindings.values.flatMap { $0 }.map { $0.mods }
         guard !allMods.isEmpty else { return preset }   // nothing bound → keep label
-        for candidate in [HotkeyPreset.hyper, .ctrlShift, .legacy] {
+        for candidate in [HotkeyPreset.cmdShiftCtrl, .ctrlShift, .legacy] {
             if let m = candidate.macModifiers, allMods.allSatisfy({ $0 == m }) {
                 return candidate
             }

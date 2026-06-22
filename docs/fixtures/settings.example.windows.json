@@ -1,0 +1,75 @@
+{
+  "schemaVersion": 1,
+  "preset": "cmdShiftCtrl",
+  "launchAtLogin": false,
+  "bindings": {
+    "inputTypeC": [
+      {
+        "mods": [
+          "control",
+          "alt",
+          "shift"
+        ],
+        "key": "C"
+      }
+    ],
+    "inputDP": [
+      {
+        "mods": [
+          "control",
+          "alt",
+          "shift"
+        ],
+        "key": "D"
+      }
+    ],
+    "kvmUSBC": [
+      {
+        "mods": [
+          "control",
+          "alt",
+          "shift"
+        ],
+        "key": "K"
+      }
+    ],
+    "kvmUpstream": [
+      {
+        "mods": [
+          "control",
+          "alt",
+          "shift"
+        ],
+        "key": "U"
+      }
+    ],
+    "kvmAuto": [
+      {
+        "mods": [
+          "control",
+          "alt",
+          "shift"
+        ],
+        "key": "A"
+      }
+    ],
+    "pbpOn": [],
+    "pbpOff": []
+  },
+  "altGrAvoidList": {
+    "keys": [
+      "Q",
+      "E",
+      "B",
+      "7",
+      "2",
+      "3",
+      "4",
+      "5",
+      "8",
+      "9",
+      "0"
+    ],
+    "note": "Letters/digits that commonly carry an AltGr-composed char on EU layouts (e.g. @, EUR, {, }, [, ], accented vowels). Advisory only."
+  }
+}

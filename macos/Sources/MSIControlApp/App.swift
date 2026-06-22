@@ -10,7 +10,17 @@ import MSIControl
 /// running the bare SwiftPM binary directly (`.build/release/MSIControlApp`).
 final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Start the debug logger FIRST so launch + any early error is captured, and
+        // the crash/signal handlers are installed before anything can go wrong.
+        let version = (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? "dev"
+        DebugLog.shared.start(version: version)
+        DebugLog.shared.info("applicationDidFinishLaunching — activation policy .accessory")
         NSApp.setActivationPolicy(.accessory)
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        // Distinguishes a clean quit from a crash/silent-vanish in the log.
+        DebugLog.shared.info("applicationWillTerminate — clean shutdown")
     }
 }
 
