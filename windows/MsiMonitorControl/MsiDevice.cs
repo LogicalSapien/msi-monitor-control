@@ -21,6 +21,16 @@ public enum MsiResult
 /// <summary>
 /// Sends HID Output reports to an MSI MD342CQP monitor via HidSharp.
 /// VID/PID and report type are sourced from docs/PROTOCOL.md.
+///
+/// <para>
+/// <b>v0.2.4 re-detect:</b> the monitor's USB HID interface is routed away from the host
+/// during a KVM switch, so the cached <see cref="HidDevice"/> becomes stale.
+/// <see cref="Refresh"/> re-enumerates synchronously and fires <see cref="ConnectionChanged"/>
+/// when the state changes. <see cref="TrayApp"/> calls <see cref="Refresh"/> on a 5-second
+/// timer so the tray menu un-greys automatically when the KVM routes the monitor back.
+/// On any HID write failure, <see cref="WriteReport"/> refreshes + retries once (mirrors the
+/// macOS reopen-on-stale-handle fix).
+/// </para>
 /// </summary>
 public sealed class MsiDevice
 {
@@ -30,18 +40,28 @@ public sealed class MsiDevice
 
     private HidDevice? _device;
 
+    /// <summary>
+    /// Raised (on the caller's thread) when the connection state changes — i.e. the monitor
+    /// appeared or disappeared. The bool argument is <c>true</c> when connected, false when gone.
+    /// <see cref="TrayApp"/> subscribes to this to rebuild the menu live.
+    /// </summary>
+    public event Action<bool>? ConnectionChanged;
+
     public MsiDevice()
     {
         Refresh();
     }
 
     /// <summary>
-    /// True if the monitor HID device is currently visible on the USB bus.
+    /// True if the monitor HID device is currently visible on the USB bus (as of the last
+    /// <see cref="Refresh"/> call or failed send that triggered an auto-refresh).
     /// </summary>
     public bool IsConnected => _device is not null;
 
     /// <summary>
-    /// Re-queries the HID device list. Call after a USB reconnect event.
+    /// Re-queries the HID device list and updates <see cref="IsConnected"/>. Fires
+    /// <see cref="ConnectionChanged"/> when the state changes. Safe to call from any thread,
+    /// but must be marshalled to the UI thread before touching any WinForms state.
     /// </summary>
     public void Refresh()
     {
@@ -51,19 +71,22 @@ public sealed class MsiDevice
             .FirstOrDefault();
 
         bool nowConnected = _device is not null;
+        // Log + notify only on a real transition — Refresh() runs every 5s, so logging
+        // the unchanged state would flood debug.log.
         if (nowConnected != wasConnected)
+        {
             DebugLog.Info(nowConnected
                 ? $"Monitor connected (VID=0x{VendorId:X4} PID=0x{ProductId:X4})."
                 : "Monitor disconnected.");
-        else
-            DebugLog.Info($"Device refresh — {(nowConnected ? "connected" : "not found")}.");
+            ConnectionChanged?.Invoke(nowConnected);
+        }
     }
 
     /// <summary>
     /// Sends <paramref name="command"/> to the monitor as an HID Output report.
     /// Returns <see cref="MsiResult.NotAMonitorCommand"/> for an app-only command (no HID payload),
-    /// <see cref="MsiResult.DeviceNotFound"/> when the monitor is not connected, or
-    /// <see cref="MsiResult.SendFailed"/> on I/O error. Never throws.
+    /// <see cref="MsiResult.DeviceNotFound"/> when the monitor is not connected (after a re-check),
+    /// or <see cref="MsiResult.SendFailed"/> on I/O error. Never throws.
     /// </summary>
     public MsiResult Send(CommandKind command)
     {
@@ -78,8 +101,15 @@ public sealed class MsiDevice
 
         if (_device is null)
         {
-            DebugLog.Warn($"Send {command}: monitor not found (device not connected).");
-            return MsiResult.DeviceNotFound;
+            // v0.2.4: try a re-enumerate before giving up — the device may have reconnected since
+            // the last periodic refresh (e.g. KVM just switched back).
+            DebugLog.Info($"Send {command}: device null — re-enumerating before send.");
+            Refresh();
+            if (_device is null)
+            {
+                DebugLog.Warn($"Send {command}: monitor not found after re-enumerate.");
+                return MsiResult.DeviceNotFound;
+            }
         }
 
         // All v0.2.2 monitor commands have hardware-confirmed payloads. This catch is a defensive
@@ -109,8 +139,13 @@ public sealed class MsiDevice
     {
         if (_device is null)
         {
-            DebugLog.Warn($"SetPbpSource {window}←{input}: monitor not found (device not connected).");
-            return MsiResult.DeviceNotFound;
+            DebugLog.Info($"SetPbpSource {window}←{input}: device null — re-enumerating.");
+            Refresh();
+            if (_device is null)
+            {
+                DebugLog.Warn($"SetPbpSource {window}←{input}: monitor not found after re-enumerate.");
+                return MsiResult.DeviceNotFound;
+            }
         }
 
         var payload = Command.PbpSourcePayload(window, input);
@@ -120,9 +155,34 @@ public sealed class MsiDevice
 
     /// <summary>
     /// Opens the device and writes a single HID Output report, with logging. Shared by
-    /// <see cref="Send"/> and <see cref="SetPbpSource"/>. Caller must have checked connectivity.
+    /// <see cref="Send"/> and <see cref="SetPbpSource"/>. On first failure, re-enumerates and
+    /// retries once — handles the KVM-stale-handle case (v0.2.4, mirrors macOS reopen fix).
     /// </summary>
     private MsiResult WriteReport(byte[] payload, string label)
+    {
+        if (TryWrite(payload, label, out var result))
+            return result;
+
+        // First write failed — the HidDevice object may be stale (KVM switched USB away).
+        // Re-enumerate and try once more before giving up.
+        DebugLog.Info($"Send {label}: first write failed — re-enumerating and retrying.");
+        Refresh();
+        if (_device is null)
+        {
+            DebugLog.Warn($"Send {label}: monitor gone after re-enumerate — cannot retry.");
+            return MsiResult.DeviceNotFound;
+        }
+
+        TryWrite(payload, label, out var retryResult);
+        return retryResult;
+    }
+
+    /// <summary>
+    /// Attempts one HID Output report write. Returns true and sets <paramref name="result"/> to
+    /// <see cref="MsiResult.Success"/> on success; returns false and sets it to
+    /// <see cref="MsiResult.SendFailed"/> on any exception.
+    /// </summary>
+    private bool TryWrite(byte[] payload, string label, out MsiResult result)
     {
         try
         {
@@ -133,12 +193,14 @@ public sealed class MsiDevice
             stream.WriteTimeout = 1000; // milliseconds
             stream.Write(payload);
             DebugLog.Info($"Send {label}: OK ({payload.Length}-byte HID Output report).");
-            return MsiResult.Success;
+            result = MsiResult.Success;
+            return true;
         }
         catch (Exception ex)
         {
-            DebugLog.Exception($"Send {label}: HID write FAILED", ex);
-            return MsiResult.SendFailed;
+            DebugLog.Exception($"Send {label}: HID write failed", ex);
+            result = MsiResult.SendFailed;
+            return false;
         }
     }
 }

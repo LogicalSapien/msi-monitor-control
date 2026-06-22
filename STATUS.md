@@ -4,6 +4,21 @@
 
 ## Current focus
 
+**v0.2.4 — hotfix: stale re-detect + silent-fail send (Windows).** Code-complete
+(no local dotnet — windows-latest CI is the gate):
+- `MsiDevice.cs`: `ConnectionChanged` event fires when state changes; `Refresh()` now
+  fires it; `Send`/`SetPbpSource` re-enumerate if `_device is null` before giving up;
+  `WriteReport` split into `TryWrite` + retry-on-failure (reopen-and-retry, mirrors macOS
+  reopen-on-stale-handle). `TryWrite` logs exception on EVERY failure (no silent swallow).
+- `TrayApp.cs`: 5-second `System.Windows.Forms.Timer` calls `_device.Refresh()` on the UI
+  thread; `ConnectionChanged` handler rebuilds the menu live (items un-grey on reconnect);
+  `MakeItem` gates monitor commands on `_device.IsConnected` (disconnected → grey).
+- All existing `MsiDeviceTests` still pass (no-monitor CI path unchanged: re-enumerate also
+  finds nothing → `DeviceNotFound`).
+
+**v0.2.4 — hotfix: stale isConnected after KVM switch (macOS).** DONE + verified
+(uncommitted — awaiting Codex review + commit).
+
 **v0.2.3 — PBP edge-switch KVM + README refresh + in-app Help (macOS).** DONE +
 verified (uncommitted — awaiting Codex review of both apps).
 

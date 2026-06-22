@@ -37,6 +37,10 @@ final class DeviceState: ObservableObject {
     }
 
     private func updateState() {
+        // Re-scan the USB bus so the connection indicator recovers after a KVM switch
+        // routes the monitor's HID away and back. Without re-scanning, isConnected
+        // stays stale-false even when the device reappears (v0.2.4 hotfix).
+        device.refresh()
         isConnected = device.isConnected
     }
 

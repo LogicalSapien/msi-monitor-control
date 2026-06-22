@@ -63,10 +63,34 @@ public final class MSIDevice {
     /// (re)established lazily at send time — see `send`.)
     public private(set) var isConnected: Bool = false
 
+    /// Re-scans the USB bus and updates `isConnected` in both directions.
+    ///
+    /// Called by the `DeviceState` 2-second poll so the menu connection indicator
+    /// recovers after a KVM switch (the monitor's HID routes away then back). The
+    /// scan uses the same transient-manager path as `locateDevice()`, so it is cheap
+    /// and safe to call on a 2 s cadence.
+    ///
+    /// Transition logging is handled inside `locateDevice()` (logs on first connect
+    /// only) and `closeDevice()` (sets `isConnected = false` silently). To avoid
+    /// log spam we add a "device lost" log only on the false→false→… non-transition.
+    public func refresh() {
+        lock.lock()
+        defer { lock.unlock() }
+        let wasConnected = isConnected
+        locateDevice()   // sets isConnected=true on success, false (via closeDevice) on miss
+        // Log only on a real transition — not every poll tick.
+        if wasConnected && !isConnected {
+            DebugLog.shared.info("device lost (no MD342CQP on USB bus)")
+        } else if !wasConnected && isConnected {
+            DebugLog.shared.info("device located (MD342CQP)")
+        }
+    }
+
     // MARK: Init / deinit
 
     public init() {
         locateDevice()
+        if isConnected { DebugLog.shared.info("device located (MD342CQP)") }
     }
 
     deinit {
@@ -129,7 +153,9 @@ public final class MSIDevice {
         // Retain the device handle. The manager (closed by `defer`) does not keep
         // it alive — `hidDevice` does, via ARC's bridge of the CFType.
         hidDevice = device
-        if !isConnected { DebugLog.shared.info("device located (MD342CQP)") }
+        // Transition logging is owned by the callers (`init` / `refresh`) which know the
+        // real prior state — `refresh()` calls `closeDevice()` first, so a "located" log
+        // gated on `isConnected` here would fire every poll tick (log spam).
         isConnected = true
         // Open state is established at send time (`attemptSend` → `ensureDeviceOpen`),
         // so the open and the SetReport always happen in the same call context.

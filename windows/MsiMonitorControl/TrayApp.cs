@@ -23,6 +23,7 @@ internal sealed class TrayApp : ApplicationContext
     private readonly MsiDevice _device;
     private readonly HotKeys _hotKeys;
     private readonly EdgeSwitchTracker _edgeSwitchTracker;
+    private readonly System.Windows.Forms.Timer _refreshTimer; // v0.2.4 periodic re-detect
     private HotkeyConfig _config;
 
     // Live status (v0.2.2): the last command THIS app sent in each group, this session only.
@@ -47,6 +48,10 @@ internal sealed class TrayApp : ApplicationContext
     {
         _device = new MsiDevice();
 
+        // v0.2.4: rebuild the menu whenever the monitor appears/disappears (KVM switch routes the
+        // USB HID away and back — we need to un-grey commands live when it returns).
+        _device.ConnectionChanged += OnConnectionChanged;
+
         // Load (or create) the shared config, then reconcile launch-at-login (config wins).
         _config = HotkeyConfig.Load();
         LaunchAtLogin.Reconcile(_config);
@@ -69,9 +74,17 @@ internal sealed class TrayApp : ApplicationContext
         _edgeSwitchTracker = new EdgeSwitchTracker(OnCommand, _invokeTarget);
         _edgeSwitchTracker.SetEnabled(_config.EdgeSwitchEnabled, _lastPbpMode);
 
+        // v0.2.4: periodic re-detect — poll every 5 s so the menu un-greys automatically after a
+        // KVM switch that routes the USB HID back to this host.  The timer fires on the UI thread
+        // (WinForms System.Windows.Forms.Timer), so Refresh() → ConnectionChanged → RebuildMenu
+        // are all on the correct thread with no marshalling needed.
+        _refreshTimer = new System.Windows.Forms.Timer { Interval = 5000 };
+        _refreshTimer.Tick += (_, _) => _device.Refresh();
+        _refreshTimer.Start();
+
         DebugLog.Info($"Tray ready (config preset={_config.Preset}, edgeSwitch={_config.EdgeSwitchEnabled}, monitor {(_device.IsConnected ? "connected" : "not found")}).");
 
-        // Refresh device list on tray icon double-click.
+        // Manual re-detect on tray icon double-click (instant, in addition to the 5-s poll).
         _trayIcon.DoubleClick += (_, _) =>
         {
             _device.Refresh();
@@ -129,19 +142,38 @@ internal sealed class TrayApp : ApplicationContext
         return menu;
     }
 
+    /// <summary>
+    /// Called by <see cref="MsiDevice.ConnectionChanged"/> when the monitor appears or disappears.
+    /// Fires on the UI thread (the timer is a WinForms Timer; the event fires synchronously on
+    /// its Tick, which runs on the message-pump thread).
+    /// </summary>
+    private void OnConnectionChanged(bool connected)
+    {
+        DebugLog.Info($"TrayApp: connection changed → {(connected ? "connected" : "disconnected")} — rebuilding menu.");
+        var oldMenu = _trayIcon.ContextMenuStrip;
+        _trayIcon.ContextMenuStrip = BuildMenu();
+        oldMenu?.Dispose();
+        UpdateConnectedState();
+    }
+
     private ToolStripMenuItem MakeItem(CommandKind command)
     {
-        var available = Command.IsAvailable(command);
-        var shortcut  = _config.PrimaryDisplay(Command.ActionId(command));
+        // v0.2.4: monitor commands are greyed when the device is disconnected — they'd fail
+        // immediately and the user sees a useless balloon. ShowLauncher (app-only) is always
+        // enabled. Payload-existence (Command.IsAvailable) gates hotkey registration; connectivity
+        // gates the live menu item.
+        var payloadAvailable = Command.IsAvailable(command);
+        var liveEnabled = payloadAvailable && (!Command.IsMonitorCommand(command) || _device.IsConnected);
+        var shortcut = _config.PrimaryDisplay(Command.ActionId(command));
         var item = new ToolStripMenuItem(Command.Label(command))
         {
-            Enabled = available,
+            Enabled = liveEnabled,
             // Shows the global hotkey right-aligned, derived from the config (e.g.
             // "Input → DP   Ctrl+Alt+Shift+D"). Display-only — actual binding is in HotKeys.
             ShowShortcutKeys = shortcut.Length > 0,
             ShortcutKeyDisplayString = shortcut.Length > 0 ? shortcut : null,
         };
-        if (available)
+        if (liveEnabled)
         {
             item.Click += (_, _) => OnCommand(command);
             _commandItems[command] = item; // for the live-status tick
@@ -415,6 +447,8 @@ internal sealed class TrayApp : ApplicationContext
             _disposed = true;
             // Ensures cleanup happens even if Application.Run returns by another path,
             // not only via the Exit menu item.
+            _refreshTimer.Stop();
+            _refreshTimer.Dispose();
             _launcher?.Dispose();
             _helpForm?.Dispose();
             _edgeSwitchTracker.Dispose();
