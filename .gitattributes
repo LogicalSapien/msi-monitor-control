@@ -1,0 +1,17 @@
+# Enforce LF for all text so byte-for-byte fixtures (e.g. the shared settings
+# config) are checked out identically on macOS, Linux, and windows-latest CI.
+# Without this, Git's autocrlf on Windows rewrites LF→CRLF on checkout and breaks
+# the cross-app byte-equality test (docs/fixtures/settings.example.json).
+* text=auto eol=lf
+
+# The shared settings fixture is byte-significant — pin it explicitly to LF and
+# treat it as text so it is never converted.
+docs/fixtures/settings.example.json text eol=lf
+
+# Binary assets must never be line-ending-normalised.
+*.png binary
+*.ico binary
+*.icns binary
+*.pdf binary
+*.dmg binary
+*.zip binary
