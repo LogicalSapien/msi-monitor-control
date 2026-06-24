@@ -4,8 +4,35 @@
 
 ## Current focus
 
-**v0.2.4 — hotfix: stale re-detect + silent-fail send (Windows).** Code-complete
-(no local dotnet — windows-latest CI is the gate):
+**All of v0.2.0 → v0.2.4 is committed, tagged, and released.** Working tree is
+clean; `main` is up to date with `origin/main`. The latest tag is **v0.2.4**
+(HEAD `d07a1c7`), and the `release.yml` GitHub Actions run for each tag is green
+with all three assets published to GitHub Releases (`MSIMonitorControl-macOS.dmg`,
+`MSIMonitorControl-macOS.zip`, `MsiMonitorControl-Windows-x64.zip`). There are
+**no uncommitted changes** and nothing awaiting review — every item previously
+annotated below as "uncommitted — awaiting Codex review" has shipped.
+
+### Pending — hardware-dependent (cannot be closed without the real MD342CQP)
+
+These are the only open items. None block a release; all need the physical monitor:
+
+1. **KVM smoke-test + position→port mapping confirmation.** The KVM byte→port
+   mapping was probed and corrected in v0.2.1 (Auto `0x30`, Upstream `0x31`,
+   USB-C `0x32` — see `docs/PROTOCOL.md`), but a full smoke-test of `kvmUpstream`
+   (`U`) / `kvmUSBC` (`K`) on real hardware should confirm the mapping end-to-end
+   and that HID SetReport switches reliably from the app (not just the probe tool).
+2. **Guided PBP main-window source probe — feature `0x36 0x32`.** Still ASSUMED,
+   not hardware-verified (flagged unverified in both apps' UI + PROTOCOL.md). The
+   user couldn't probe it safely because the KVM/USB-C control connection sits on
+   the main window. Verify when safe and update `docs/PROTOCOL.md`.
+3. **v0.1.2 hardening polish.** Remaining low-priority robustness clean-ups
+   carried forward (e.g. the report-ID double-count question in PROTOCOL.md
+   "Open question", confirmable only via a USB HID capture on hardware).
+
+### Shipped history
+
+**v0.2.4 — hotfix: stale re-detect + silent-fail send (Windows).** SHIPPED
+(commit `d07a1c7`, tag `v0.2.4`, release CI green):
 - `MsiDevice.cs`: `ConnectionChanged` event fires when state changes; `Refresh()` now
   fires it; `Send`/`SetPbpSource` re-enumerate if `_device is null` before giving up;
   `WriteReport` split into `TryWrite` + retry-on-failure (reopen-and-retry, mirrors macOS
@@ -16,14 +43,14 @@
 - All existing `MsiDeviceTests` still pass (no-monitor CI path unchanged: re-enumerate also
   finds nothing → `DeviceNotFound`).
 
-**v0.2.4 — hotfix: stale isConnected after KVM switch (macOS).** DONE + verified
-(uncommitted — awaiting Codex review + commit).
+**v0.2.4 — hotfix: stale isConnected after KVM switch (macOS).** SHIPPED
+(commit `d07a1c7`).
 
-**v0.2.3 — PBP edge-switch KVM + README refresh + in-app Help (macOS).** DONE +
-verified (uncommitted — awaiting Codex review of both apps).
+**v0.2.3 — PBP edge-switch KVM + README refresh + in-app Help (macOS).** SHIPPED
+(commit `36eba83`, tag `v0.2.3`, release CI green).
 
-**v0.2.3 — PBP edge-switch KVM + in-app Help (Windows side).** Code-complete (not
-built locally — no dotnet on dev Mac; windows-latest CI is the gate):
+**v0.2.3 — PBP edge-switch KVM + in-app Help (Windows side).** SHIPPED (commit
+`36eba83`; EdgeSwitchTests fix `87391cc`; verified green on windows-latest CI):
 - `EdgeSwitchTracker.cs` (new) + `EdgeSwitchLogic.cs` (pure state machine, separately
   testable): WH_MOUSE_LL hook on the WinForms UI thread; 48-px dead zone + 800-ms dwell
   hysteresis; 3440×1440 display match via Screen.AllScreens; input→KVM mapping
@@ -47,10 +74,10 @@ built locally — no dotnet on dev Mac; windows-latest CI is the gate):
   `CtrlShiftPreset_IsByteIdenticalToSharedFixture`). All 17 edge-switch tests + all fixture
   tests expected GREEN in CI.
 
-**v0.2.2 — HDMI inputs + PBP/PIP + source-select + live status (macOS).** DONE +
-verified (uncommitted — awaiting single Codex review of both apps). PROTOCOL.md +
-design spec updated with the fully hardware-confirmed mapping; probe tools committed
-to main by lead (973bc94).
+**v0.2.2 — HDMI inputs + PBP/PIP + source-select + live status (macOS).** SHIPPED
+(commit `13cea06`, tag `v0.2.2`, release CI green). PROTOCOL.md + design spec
+updated with the fully hardware-confirmed mapping; probe tools committed to main
+by lead (973bc94).
 - **New commands:** `inputHDMI1`(H), `inputHDMI2`(J) [un-parked]; PBP/PIP modes
   `pbpOff`(O)/`pbpPIP`(I)/`pbpOn`(P) (feature 0x36 0x30; real payloads replacing the
   old nil stubs) — ship WITH default chords (user reconsidered; rebindable as ever).
@@ -72,7 +99,7 @@ to main by lead (973bc94).
   A–Z/0–9 — `normaliseKey`, validation, Carbon keycode 49, capture-by-keyCode,
   `⌃⇧⌘ Space` display, resilient-loader normalisation. SETTINGS.md §3.4 documents it.
 
-### v0.2.3 — PBP edge-switch KVM + README + Help (msi-mac, 2026-06-22 — awaiting Codex review + commit)
+### v0.2.3 — PBP edge-switch KVM + README + Help (msi-mac, 2026-06-22 — SHIPPED, commit 36eba83)
 
 Three tasks: (1) PBP edge-switch KVM, (2) README refresh, (3) in-app Help screen.
 
@@ -97,7 +124,7 @@ Three tasks: (1) PBP edge-switch KVM, (2) README refresh, (3) in-app Help screen
 ```
 Appears as the last field after `altGrAvoidList` in all 3 fixtures (identical in all three — platform-independent boolean).
 
-**Verification (v0.2.3):** `swift build` + `swift build -c release` + `swift test` = **69 tests, 0 failed, 1 skipped** (fixture REGEN gate). `./build-app.sh` — adhoc-signed bundle, Sealed Resources valid. NOT committed — awaiting Codex review.
+**Verification (v0.2.3):** `swift build` + `swift build -c release` + `swift test` = **69 tests, 0 failed, 1 skipped** (fixture REGEN gate). `./build-app.sh` — adhoc-signed bundle, Sealed Resources valid. SHIPPED (commit `36eba83`).
 
 **v0.2.1 — default hotkey scheme fix (macOS).** Default chord changed from ⌃⌥⇧ to
 **⌃⇧⌘ (Control+Shift+Command, NO Option)** per user testing; preset renamed
@@ -105,19 +132,19 @@ Appears as the last field after `altGrAvoidList` in all 3 fixtures (identical in
 (Mac `command`, Windows `alt`), so the shared fixture is now **split** into
 `settings.example.{macos,windows}.json`; byte-identity across apps now holds only
 for the platform-independent `ctrlShift` preset, with mutual-loadability proven for
-the per-OS default. macOS DONE + verified (uncommitted — awaiting Codex review).
+the per-OS default. SHIPPED (commit `e8387a8`, tag `v0.2.1`).
 See the v0.2.1 section below.
 
 **v0.2.0 — configurable cross-platform hotkeys + settings.** Design contract
-`docs/SETTINGS.md` APPROVED. macOS implementation done + verified (uncommitted —
-awaiting lead Codex-review); Windows building in parallel against the same schema.
+`docs/SETTINGS.md` APPROVED. SHIPPED (tag `v0.2.0`); Windows built in parallel
+against the same schema.
 - **msi-mac** — v0.2.0 macOS side: `HotkeyConfig` model, data-driven `Command`,
   config-driven `HotKeyManager` with live re-register, SwiftUI settings UI,
-  `SMAppService` launch-at-login. **DONE, verified, uncommitted** (2026-06-22).
+  `SMAppService` launch-at-login. **SHIPPED** (2026-06-22).
 - Earlier: Phase 1 + post-MVP hardening + hardware-feedback fixes — COMPLETE (committed).
 - **msi-windows** — Track C/D + KVM/Auto fixes COMPLETE; v0.2.0 C# side in progress.
 
-### v0.2.1 — default scheme fix (msi-mac, 2026-06-22 — awaiting Codex review + commit)
+### v0.2.1 — default scheme fix (msi-mac, 2026-06-22 — SHIPPED, commit e8387a8)
 
 | Item | File(s) | Notes |
 |:-----|:--------|:------|
@@ -133,9 +160,9 @@ awaiting lead Codex-review); Windows building in parallel against the same schem
 
 **Coordination for msi-windows-2:** preset raw token is **`cmdShiftCtrl`** (must match exactly); Windows default config = `settings.example.windows.json` with default mods `["control","alt","shift"]` in canonical order (alt BEFORE shift). `ctrlShift` is the only byte-identical-across-platforms preset.
 
-**Verification (v0.2.1):** `swift build` + `-c release` clean, **no warnings**; `swift test` = **55 tests, 0 failed, 3 skipped** (2 device + REGEN generator). `testDefaultSaveBytesEqualFixtureBytes` (vs macOS fixture) + the new cross-app tests pass. `./build-app.sh` valid; fresh first-run config is **byte-for-byte identical to `settings.example.macos.json`** (verified via `diff`). NOT committed.
+**Verification (v0.2.1):** `swift build` + `-c release` clean, **no warnings**; `swift test` = **55 tests, 0 failed, 3 skipped** (2 device + REGEN generator). `testDefaultSaveBytesEqualFixtureBytes` (vs macOS fixture) + the new cross-app tests pass. `./build-app.sh` valid; fresh first-run config is **byte-for-byte identical to `settings.example.macos.json`** (verified via `diff`). SHIPPED.
 
-### v0.2.0 — settings + hotkeys (msi-mac, 2026-06-22 — awaiting Codex review + commit)
+### v0.2.0 — settings + hotkeys (msi-mac, 2026-06-22 — SHIPPED, tag v0.2.0)
 
 Shared contract: `docs/SETTINGS.md` (single source of truth, like PROTOCOL.md) +
 `docs/fixtures/settings.example.json`. Decisions baked in: full-chord-per-binding
@@ -169,7 +196,7 @@ tests pass. `./build-app.sh` → signed bundle valid; launched OK; fresh app-wri
 config is **byte-for-byte identical to `docs/fixtures/settings.example.json`**
 (verified via `diff`). Contract CONFIRMED byte-identical (human-approved); a
 separate cross-load sample is unnecessary (shared-fixture byte-equality covers
-mutual-loadability). NOT committed — awaiting Windows byte-match confirmation + lead commit.
+mutual-loadability). SHIPPED (tag `v0.2.0`); Windows byte-match confirmed in CI.
 
 **v0.2.0 cross-app contract checks for msi-windows:** a config written under
 `hyper`/`ctrlShift` must load byte-identically in C#. actionIds are the contract
@@ -185,7 +212,7 @@ nesting is folder-only — see SETTINGS.md §6).
 | Resource-leak fixes | ef804bf | IOHIDManager/Device now closed (was leaking USB claim); manager scheduled on run loop before `CopyDevices` (reliable enumeration); safe CFTypeID downcast; HotKeys `passRetained` balanced in deinit, `[weak self]` dispatch, OSStatus logging. |
 | KVM switching | 53c1c09 | New reference `kdar/msi-monitor-ctrl` decoded. PROTOCOL.md gains Command grammar + KVM payloads (feature `0x38 0x3E`). `kvmUSBC`/`kvmUpstream` now have payloads → live menu items + hotkeys. |
 
-### Hardware-feedback fixes (msi-mac, 2026-06-22 — awaiting agy review + commit)
+### Hardware-feedback fixes (msi-mac, 2026-06-22 — SHIPPED)
 
 After the user smoke-tested the .app on the real MD342CQP, four coherent fixes
 (HDMI left parked for a later hardware-probing session):
@@ -307,7 +334,7 @@ See `tools/README.md` for full usage, the grammar, and sweep modes.
 device ("MSI Gaming Controller"). The tool correctly matched + opened it and reported a clean
 send failure (kIOReturnNotPermitted) — matching/payload logic verified; send succeeds on the real monitor.
 
-### v0.2.0 — settings + hotkeys (msi-windows, 2026-06-22 — awaiting Codex review + commit)
+### v0.2.0 — settings + hotkeys (msi-windows, 2026-06-22 — SHIPPED, tag v0.2.0)
 
 Implemented the Windows side of the shared settings contract (docs/SETTINGS.md §8(b)).
 Built correct-by-construction against the approved schema — **no local dotnet on the dev
@@ -401,7 +428,7 @@ byte-identical to the fixture + macOS. The test's `Assert.DoesNotContain("\r", a
 positively guards this. **The lesson: "correct-by-construction" on a Mac cannot catch
 platform-newline behaviour — real windows-latest execution was required.**
 
-### v0.2.1 — default scheme fix (msi-windows, 2026-06-22 — awaiting Codex review + commit)
+### v0.2.1 — default scheme fix (msi-windows, 2026-06-22 — SHIPPED, tag v0.2.1)
 
 User testing changed the default scheme: macOS ⌃⌥⇧→⌃⇧⌘; **Windows default UNCHANGED at
 Ctrl+Alt+Shift** (intentional per-OS: Mac Command sits where the user's Alt is → same physical
@@ -430,7 +457,7 @@ keys). Windows changes:
 - Contract-comment wording aligned to the scoped-byte-identity model (matches msi-mac's
   §2.1/§3.2/§3.8: cross-app byte-identity for ctrlShift only; per-OS presets within-platform;
   mutual-loadability everywhere).
-- Runtime stays LF (v0.2.0 fix kept). No local dotnet → windows-latest CI is the gate. Not committed.
+- Runtime stays LF (v0.2.0 fix kept). No local dotnet → windows-latest CI was the gate (green). SHIPPED.
 - **KVM byte[10] mapping — DONE (hardware-confirmed v0.2.1):** `Command.cs` updated to the
   probed mapping — **USB-C=0x32 (was wrongly 0x30), Upstream=0x31, Auto=0x30**. `KvmUsbC` byte[10]
   fixed; new `PayloadKvmAuto` (0x30); `PayloadFor(KvmAuto)` returns it (no longer throws);
@@ -502,7 +529,7 @@ keys). Windows changes:
   NormaliseKey casing + Parse-normalises-"space"→"Space", DisplayString Space, fixture byte tests
   + cross-load now include the 11th binding; monitor-only payload/never-throw tests gate on
   `IsMonitorCommand`.
-- Not built locally (no dotnet) → windows-latest CI is the gate. Not committed — single Codex review.
+- Not built locally (no dotnet) → windows-latest CI was the gate (green). SHIPPED (commit `13cea06`).
 
 **Codex review fix (v0.2.2, msi-windows — 1 blocking + non-blockers):**
 - 🔴 **HID-boundary guard:** `MsiDevice.Send` now returns the new `MsiResult.NotAMonitorCommand`
@@ -518,23 +545,30 @@ keys). Windows changes:
 
 ## Blockers
 
-- **PBP On/Off payloads** — UNKNOWN. Use `hid-probe` on hardware (sweep the feature-code
-  pair at indices [5],[6]; see `tools/README.md`), then fill them into PROTOCOL.md.
-- **KVM payloads — KNOWN** (from kdar/msi-monitor-ctrl) but the position→port mapping
-  (USB-C=0, Upstream=1) is UNCONFIRMED, and KVM-over-HID-SetReport is unverified. Human
-  to confirm on the MD342CQP and flip the mapping if wrong.
-- **CI green confirmation** — needs the push to trigger the GitHub Actions `windows-latest`
-  job. The human should verify it passes (no real monitor attached in CI, so device-not-found
-  tests are the expected pass state).
+None blocking a release. The remaining open items are all hardware-dependent and
+do not gate shipping (KVM, PBP/PIP modes + sub-source, and all four inputs are
+hardware-confirmed and shipped):
+
+- **PBP main-window source — feature `0x36 0x32`** — ASSUMED, not hardware-verified
+  (the KVM/USB-C control connection sits on the main window, so probing it risks
+  losing control). Flagged unverified in both apps' UI and in `docs/PROTOCOL.md`.
+  Verify when safe and update PROTOCOL.md.
+- **KVM smoke-test** — the byte→port mapping was probed and corrected in v0.2.1
+  (Auto `0x30`, Upstream `0x31`, USB-C `0x32`). A full end-to-end smoke-test of
+  `kvmUpstream`/`kvmUSBC` from the app on real hardware should still confirm it.
 
 ## Next steps
 
-1. Human: verify CI green on the `windows-latest` job after the 22a79a6 push.
-2. Human: smoke-test on the real MD342CQP (Input → Type-C and Input → DP).
-3. If PBP/KVM are needed: USB HID capture session → fill payloads in PROTOCOL.md +
-   update `Command.cs` (both macOS and Windows).
-4. **Phase 2 DONE (commit 6e513f7):** `.github/workflows/release.yml` published.
-   Cut first release: `git tag v0.1.0 && git push origin v0.1.0`.
+1. Human: smoke-test KVM (`kvmUpstream` / `kvmUSBC`) on the real MD342CQP and
+   confirm the v0.2.1 position→port mapping end-to-end via the app.
+2. Human: guided probe of the PBP main-window source (`0x36 0x32`) when safe;
+   update `docs/PROTOCOL.md` if it differs from the assumed input enum.
+3. v0.1.2 hardening polish — remaining low-priority robustness clean-ups
+   (e.g. the report-ID double-count question in PROTOCOL.md, confirmable only via
+   a USB HID capture on hardware).
+
+Releases are cut and live: **v0.2.0 → v0.2.4** are all tagged, with green
+`release.yml` runs and published assets on GitHub Releases.
 
 ## Decisions (with why)
 
