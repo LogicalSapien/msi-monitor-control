@@ -697,14 +697,16 @@ public class HotkeyConfigTests
     }
 
     /// <summary>
-    /// Cross-load / mutual-loadability (docs/SETTINGS.md §2.1): the macOS app's default config
+    /// Cross-load / self-healing (docs/SETTINGS.md §2.1): the macOS app's default config
     /// (mods `control, shift, command`) loads here into a valid model. The `command` modifier
-    /// has no Windows equivalent, so it is dropped with a log (§3.4) — the chord survives as
-    /// Ctrl+Shift+key. This proves a Mac-written file is usable on Windows even though the two
-    /// default files are NOT byte-identical (the per-OS default is the documented exception).
+    /// has no Windows equivalent, so it is dropped with a log (§3.4). After the drop, Sanitise()
+    /// re-bakes the CmdShiftCtrl preset to its Windows-canonical form — Ctrl+Alt+Shift — ensuring
+    /// chords remain unambiguous and usable without further user action (self-healing behaviour).
+    /// This proves a Mac-written file is usable on Windows even though the two default files are
+    /// NOT byte-identical (the per-OS default is the documented exception).
     /// </summary>
     [Fact]
-    public void MacosFixture_CrossLoads_CommandDroppedRestSurvives()
+    public void MacosFixture_CrossLoads_CommandDroppedAndReBakedToCtrlAltShift()
     {
         var path = Path.Combine(AppContext.BaseDirectory, "fixtures", "settings.example.macos.json");
         Assert.True(File.Exists(path), $"macOS fixture not copied to output: {path}");
@@ -714,8 +716,8 @@ public class HotkeyConfigTests
         Assert.True(repaired); // command modifier dropped on Windows → a repair
         Assert.Equal(HotkeyPreset.CmdShiftCtrl, parsed.Preset);
 
-        // Each default chord loads as Ctrl+Shift+key (command stripped, control+shift kept).
-        var ctrlShift = new[] { HotkeyConfig.ModControl, HotkeyConfig.ModShift };
+        // After dropping `command`, Sanitise() re-bakes the CmdShiftCtrl preset to Ctrl+Alt+Shift.
+        var ctrlAltShift = new[] { HotkeyConfig.ModControl, HotkeyConfig.ModAlt, HotkeyConfig.ModShift };
         foreach (var (actionId, key) in new[]
                  {
                      ("inputHDMI1", "H"), ("inputHDMI2", "J"), ("inputTypeC", "C"), ("inputDP", "D"),
@@ -725,7 +727,8 @@ public class HotkeyConfigTests
         {
             var chord = parsed.Bindings[actionId][0];
             Assert.Equal(key, chord.Key);
-            Assert.True(chord.ModSet.SetEquals(ctrlShift), $"{actionId} should be Ctrl+Shift after command drop");
+            Assert.True(chord.ModSet.SetEquals(ctrlAltShift),
+                $"{actionId} should be Ctrl+Alt+Shift after command drop and CmdShiftCtrl re-bake");
             Assert.DoesNotContain(HotkeyConfig.ModCommand, chord.ModSet);
         }
     }
