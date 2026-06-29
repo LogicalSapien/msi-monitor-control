@@ -273,6 +273,38 @@ public class HotkeyConfigTests
         Assert.DoesNotContain(HotkeyConfig.ModCommand, chord.ModSet);
     }
 
+    [Fact]
+    public void Sanitise_CmdShiftCtrlPreset_RebakesCorrectWindowsModsAfterCommandDrop()
+    {
+        // A macOS-written CmdShiftCtrl config carries control+shift+command. On Windows the
+        // command modifier is dropped (§3.4). With the self-healing fix the Sanitise step
+        // detects that (a) command was dropped and (b) the stored preset is CmdShiftCtrl, and
+        // re-bakes the chord to the correct Windows modifier set (Ctrl+Alt+Shift) rather than
+        // leaving it as the incomplete Ctrl+Shift pair.
+        const string json = """
+        {
+          "schemaVersion": 1,
+          "preset": "cmdShiftCtrl",
+          "launchAtLogin": false,
+          "bindings": {
+            "inputTypeC": [ { "mods": ["control","shift","command"], "key": "C" } ]
+          },
+          "altGrAvoidList": { "keys": ["Q"], "note": "x" }
+        }
+        """;
+
+        var parsed = HotkeyConfig.Parse(json, overwriteOnRepair: false, out var repaired);
+
+        Assert.True(repaired); // command was dropped
+        var chord = parsed.Bindings["inputTypeC"][0];
+        Assert.Equal("C", chord.Key);
+        // After re-baking, modifiers must be the full Windows CmdShiftCtrl set: control+alt+shift.
+        var expected = new[] { HotkeyConfig.ModControl, HotkeyConfig.ModAlt, HotkeyConfig.ModShift };
+        Assert.True(chord.ModSet.SetEquals(expected),
+            $"Expected Ctrl+Alt+Shift but got [{string.Join(", ", chord.ModSet)}]");
+        Assert.DoesNotContain(HotkeyConfig.ModCommand, chord.ModSet);
+    }
+
     // -- Per-field resilience for badly-SHAPED entries (Codex blocker 2) ------
 
     [Fact]

@@ -498,6 +498,18 @@ public sealed class HotkeyConfig
                         mods.Add(norm);
                 }
 
+                // Self-healing: if command was dropped and the stored preset is CmdShiftCtrl,
+                // the macOS-written mods (control+shift+command) lost their alt equivalent on
+                // Windows. Re-bake the preset's correct Windows mods (Ctrl+Alt+Shift) so the
+                // chord matches what the user expects. This runs per-chord inside the loop so
+                // that only chords that had command are affected; the preset label is rewritten
+                // by ApplyPreset, which is idempotent and safe to call multiple times.
+                if (hadCommand && Preset == HotkeyPreset.CmdShiftCtrl && mods.Count > 0)
+                {
+                    mods = SortMods(ModifiersForPreset(HotkeyPreset.CmdShiftCtrl));
+                    DebugLog.Info("[HotkeyConfig] Re-baked CmdShiftCtrl preset mods after dropping 'command' modifier.");
+                }
+
                 // A modifier-less global hotkey is rejected (too collision-prone — §3.3/§3.5).
                 // This also covers a mac legacy chord that was *only* command.
                 if (mods.Count == 0)
