@@ -284,12 +284,12 @@ public final class MSIDevice {
         }
         guard let device = hidDevice else { return kIOReturnNoDevice }
 
-        // TODO(verify-on-hardware): report ID may be double-counted — byte[0]
-        // (0x01) is passed both as the reportID argument AND as the first byte of
-        // the buffer. This mirrors the reference implementation
-        // (Phaseowner/MSI-Display-Switch) which works on the MD342CQP, so we keep
-        // it as-is until confirmed via a USB HID capture on real hardware.
-        // See docs/PROTOCOL.md § "Reverse-engineering notes".
+        // RESOLVED (v0.2.6): IOHIDDeviceSetReport delivers the buffer VERBATIM as
+        // report data — the frame's leading 0x01 is genuine data the firmware
+        // expects, and reportID being 0x01 too is coincidence. This mirrors the
+        // reference (Phaseowner/MSI-Display-Switch) and is hardware-confirmed.
+        // Windows differs (its HID stack consumes buffer[0] as the report ID) and
+        // must prepend — see docs/PROTOCOL.md § "Report-ID framing — RESOLVED".
         let reportID = CFIndex(bytes[0])
         return IOHIDDeviceSetReport(
             device,

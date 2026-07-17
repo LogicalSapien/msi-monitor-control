@@ -4,13 +4,26 @@
 
 ## Current focus
 
-**All of v0.2.0 → v0.2.4 is committed, tagged, and released.** Working tree is
-clean; `main` is up to date with `origin/main`. The latest tag is **v0.2.4**
-(HEAD `d07a1c7`), and the `release.yml` GitHub Actions run for each tag is green
-with all three assets published to GitHub Releases (`MSIMonitorControl-macOS.dmg`,
-`MSIMonitorControl-macOS.zip`, `MsiMonitorControl-Windows-x64.zip`). There are
-**no uncommitted changes** and nothing awaiting review — every item previously
-annotated below as "uncommitted — awaiting Codex review" has shipped.
+**v0.2.6 — Windows report-ID framing fix (AWAITING HARDWARE VERIFICATION).**
+Field debugging on 2026-07-17 (user's Windows work laptop + real MD342CQP)
+showed every send logging `OK` while the monitor ignored the command. Root
+cause: Windows' HID stack consumes `buffer[0]` as the report ID and delivers
+only the REMAINING bytes as report data, so the 53-byte PROTOCOL.md frame
+arrived shifted one byte left (`35 62 …` instead of `01 35 …`). macOS
+(`IOHIDDeviceSetReport`) delivers the buffer verbatim — which is why the same
+payload works there. Fix: `MsiDevice.ToWireReport` prepends the report-ID byte
+(`0x01`) so the full frame survives as data ([MSI-6]). PROTOCOL.md's old
+"report-ID double-count" open question is now RESOLVED (it had the direction
+backwards). Also stamped `<Version>` in the csproj so debug.log identifies the
+build (was logging the .NET default `1.0.0.0`). **User must re-test input
+switching from Windows with the v0.2.6 build** — the PnP enumeration during
+debugging confirmed a single HID collection, so device selection was ruled out.
+
+Before this: **all of v0.2.0 → v0.2.5 is committed, tagged, and released**
+(v0.2.5 = MSI-5 CmdShiftCtrl re-bake fixes, released 2026-06-29), each with
+green `release.yml` runs and all three assets published
+(`MSIMonitorControl-macOS.dmg`, `MSIMonitorControl-macOS.zip`,
+`MsiMonitorControl-Windows-x64.zip`).
 
 ### Pending — hardware-dependent (cannot be closed without the real MD342CQP)
 

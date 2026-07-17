@@ -283,17 +283,31 @@ The payload structure follows an ASCII-like protocol: bytes[1..11] form the stri
 This is an ASCII command protocol: the report body is a text command terminated
 with `\r` (`0x0D`), zero-padded to the report size.
 
-### Open question: report-ID handling (verify on hardware)
+### Report-ID framing — RESOLVED (v0.2.6, Windows field debugging)
 
-Both apps pass `byte[0]` (`0x01`) **twice**: once as the explicit report-ID
-argument to the send call (`IOHIDDeviceSetReport` on macOS, `stream.Write` on
-Windows) AND as the first byte of the buffer. Depending on how the OS HID stack
-strips the leading report ID, the monitor may receive the `0x01` byte once or
-twice. The reference implementation does the same and works on the MD342CQP, so
-the current behaviour is kept as-is. This should be confirmed with a USB HID
-capture against real hardware; if the byte is double-counted, drop the leading
-`0x01` from the buffer (keeping it only as the report-ID argument). Tracked in
-code with `// TODO(verify-on-hardware)` near the send call in both apps.
+The two OS HID stacks treat the buffer's first byte differently, and this
+matters because the monitor firmware needs the frame's leading `0x01` to arrive
+**as report data**:
+
+- **macOS** (`IOHIDDeviceSetReport`): the report ID is a separate argument; the
+  buffer is delivered **verbatim** as report data. Passing the 53-byte frame
+  (which begins `0x01`) with `reportID = 1` — as the working reference
+  (Phaseowner/MSI-Display-Switch) does — delivers data beginning
+  `01 35 62 …`. Hardware-confirmed working. Keep as-is.
+- **Windows** (HidSharp `stream.Write`, i.e. `WriteFile` to the HID class
+  driver): `buffer[0]` is **consumed as the report ID** and only the remaining
+  bytes are delivered as report data. Passing the frame directly (the
+  v0.2.0–v0.2.5 behaviour) delivered data beginning `35 62 30 …` — shifted one
+  byte left — which the monitor **silently ignores** (the write itself
+  succeeds). Observed in the field 2026-07-17: `Send … OK` logged, no input
+  switch. Fix: prepend a report-ID byte (`0x01`) so the wire buffer is
+  `[0x01] + frame` (54 bytes) and the full frame survives as data
+  (`MsiDevice.ToWireReport`).
+
+So the earlier "double-count" note had it backwards: the leading `0x01` in the
+frame is genuine report **data** the firmware expects (the report ID also being
+`0x01` is a coincidence of the protocol). macOS never double-sent; Windows was
+under-sending.
 
 ### What is NOT known / unverified (Needs-decision)
 

@@ -177,6 +177,25 @@ public sealed class MsiDevice
         return retryResult;
     }
 
+    // Sourced from docs/PROTOCOL.md §HID interface: every frame begins 0x01 and the report ID is 0x01.
+    private const byte ReportId = 0x01;
+
+    /// <summary>
+    /// Builds the buffer handed to HidSharp from a PROTOCOL.md frame. Windows' HID stack consumes
+    /// <c>buffer[0]</c> as the report ID and delivers only the REMAINING bytes as report data,
+    /// whereas macOS (IOHIDDeviceSetReport) delivers the whole frame as data with the report ID
+    /// signalled separately — and the monitor firmware needs the frame's leading 0x01 to survive
+    /// into the data. So the report ID must be prepended here, NOT taken from the frame itself.
+    /// See docs/PROTOCOL.md §HID interface (report-ID framing).
+    /// </summary>
+    internal static byte[] ToWireReport(byte[] payload)
+    {
+        var wire = new byte[payload.Length + 1];
+        wire[0] = ReportId;
+        Array.Copy(payload, 0, wire, 1, payload.Length);
+        return wire;
+    }
+
     /// <summary>
     /// Attempts one HID Output report write. Returns true and sets <paramref name="result"/> to
     /// <see cref="MsiResult.Success"/> on success; returns false and sets it to
@@ -191,8 +210,9 @@ public sealed class MsiDevice
             using var stream = _device!.Open();
             // Don't block indefinitely if the device stalls or stops responding.
             stream.WriteTimeout = 1000; // milliseconds
-            stream.Write(payload);
-            DebugLog.Info($"Send {label}: OK ({payload.Length}-byte HID Output report).");
+            var wire = ToWireReport(payload);
+            stream.Write(wire);
+            DebugLog.Info($"Send {label}: OK ({wire.Length}-byte write = report ID 0x01 + {payload.Length}-byte frame).");
             result = MsiResult.Success;
             return true;
         }
