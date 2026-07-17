@@ -9,6 +9,13 @@
     <AssemblyName>MsiMonitorControl</AssemblyName>
     <RootNamespace>MsiMonitorControl</RootNamespace>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <!--
+      Keep in step with the release tag. DebugLog stamps this into debug.log's
+      session-start line — without it every build logs the .NET default "1.0.0.0",
+      making field logs impossible to tie to a release (bitten during the
+      2026-07-17 Windows debugging session).
+    -->
+    <Version>0.2.6</Version>
   </PropertyGroup>
 
   <!--
