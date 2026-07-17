@@ -60,19 +60,16 @@ public class MsiDeviceTests
     }
 
     [Fact]
-    public void ToWireReport_PrependsReportId_KeepingTheWholeFrameAsData()
+    public void EveryMonitorFrame_BeginsWithTheReportIdByte()
     {
-        // Windows' HID stack consumes buffer[0] as the report ID, so the PROTOCOL.md frame —
-        // including its own leading 0x01 — must sit AFTER a prepended report-ID byte. Without
-        // the prepend the frame arrives shifted one byte left and the monitor silently ignores
-        // it (the v0.2.5 "Send OK but nothing switches" bug).
-        var frame = Command.PayloadFor(CommandKind.InputTypeC);
-        var wire = MsiDevice.ToWireReport(frame);
-
-        Assert.Equal(frame.Length + 1, wire.Length);
-        Assert.Equal(0x01, wire[0]);                  // prepended report ID
-        Assert.Equal(frame, wire.Skip(1).ToArray()); // frame intact, still starting 0x01 0x35
-        Assert.Equal(0x01, wire[1]);
-        Assert.Equal(0x35, wire[2]);
+        // The frame is written to HidSharp AS-IS: its first byte doubles as the report ID the
+        // Windows HID stack consumes (hardware-confirmed via HidProbe 2026-07-17, variant B —
+        // the device descriptor declares numbered reports, ID 1). Every monitor command's
+        // payload must therefore begin 0x01 or the write would target the wrong report.
+        foreach (CommandKind kind in Enum.GetValues<CommandKind>())
+        {
+            if (!Command.IsMonitorCommand(kind)) continue;
+            Assert.Equal(0x01, Command.PayloadFor(kind)[0]);
+        }
     }
 }

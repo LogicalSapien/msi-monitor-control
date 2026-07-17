@@ -283,31 +283,57 @@ The payload structure follows an ASCII-like protocol: bytes[1..11] form the stri
 This is an ASCII command protocol: the report body is a text command terminated
 with `\r` (`0x0D`), zero-padded to the report size.
 
-### Report-ID framing — RESOLVED (v0.2.6, Windows field debugging)
+### Report-ID framing — RESOLVED (v0.2.8, hardware-probed 2026-07-17)
 
-The two OS HID stacks treat the buffer's first byte differently, and this
-matters because the monitor firmware needs the frame's leading `0x01` to arrive
-**as report data**:
+**Both apps write the 53-byte frame AS-IS. The frame's leading `0x01` IS the
+report-ID byte.** Confirmed on the real MD342CQP via the v0.2.7 `HidProbe`
+(Windows tray → "Probe HID send paths…"), which captured the device's raw HID
+report descriptor and A/B-tested six wire formats using PBP→PIP as a visible
+signal.
 
-- **macOS** (`IOHIDDeviceSetReport`): the report ID is a separate argument; the
-  buffer is delivered **verbatim** as report data. Passing the 53-byte frame
-  (which begins `0x01`) with `reportID = 1` — as the working reference
-  (Phaseowner/MSI-Display-Switch) does — delivers data beginning
-  `01 35 62 …`. Hardware-confirmed working. Keep as-is.
-- **Windows** (HidSharp `stream.Write`, i.e. `WriteFile` to the HID class
-  driver): `buffer[0]` is **consumed as the report ID** and only the remaining
-  bytes are delivered as report data. Passing the frame directly (the
-  v0.2.0–v0.2.5 behaviour) delivered data beginning `35 62 30 …` — shifted one
-  byte left — which the monitor **silently ignores** (the write itself
-  succeeds). Observed in the field 2026-07-17: `Send … OK` logged, no input
-  switch. Fix: prepend a report-ID byte (`0x01`) so the wire buffer is
-  `[0x01] + frame` (54 bytes) and the full frame survives as data
-  (`MsiDevice.ToWireReport`).
+**Report descriptor (57 bytes, captured on Windows):**
 
-So the earlier "double-count" note had it backwards: the leading `0x01` in the
-frame is genuine report **data** the firmware expects (the report ID also being
-`0x01` is a coincidence of the protocol). macOS never double-sent; Windows was
-under-sending.
+```
+05 01 09 00 A1 01 85 01 15 00 25 01 35 00 45 01 65 00 55 00 75 01 96 F8 01
+81 03 85 02 81 03 85 03 81 03 85 04 81 03 85 01 91 03 85 02 91 03 85 03 91
+03 85 04 91 03 C1 00
+```
+
+Decoded: Generic Desktop / Usage 0, one Application collection declaring
+**numbered reports, IDs 1–4**, each with 504 constant bits (= 63 data bytes) as
+both Input and Output. So the Windows caps are input=64, output=64,
+**feature=0** (no feature reports), where the 64 includes the report-ID byte.
+
+What this means per platform:
+
+- **Windows** (HidSharp `stream.Write` → `WriteFile`): `buffer[0]` is the
+  report ID. Writing the frame as-is gives report ID `0x01` + data
+  `35 62 30 …` (zero-padded by HidSharp to the 64-byte report), and the wire
+  packet is therefore `01 35 62 … 0D 00 …` — exactly the frame, padded.
+  **Hardware-confirmed working (probe variant B).** Prepending an extra `0x01`
+  (the short-lived v0.2.6 behaviour, variant A) shifts the frame one byte right
+  and the monitor silently ignores it — hardware-confirmed NOT working.
+- **macOS** (`IOHIDDeviceSetReport` with `reportID = 1` and the frame as the
+  buffer, as the Phaseowner reference does): hardware-confirmed working since
+  v0.1. Same wire result.
+
+History of the confusion, for the record: the original "double-count" note
+guessed the `0x01` might be sent twice; v0.2.6 briefly "fixed" Windows by
+prepending a report-ID byte (wrong — made even PBP commands fail); the v0.2.7
+probe settled it empirically. The v0.2.5 wire format had been correct all
+along — the field report of "input not switching" on Windows was NOT a
+transport failure (see the input-switch behaviour note below).
+
+### Input-switch behaviour on Windows — under investigation (v0.2.8)
+
+With the wire format hardware-confirmed correct (above), the 2026-07-17 field
+report of "input not switching from Windows" is a command-level behaviour, not
+a transport failure — PBP→PIP demonstrably acts on the very same path. Working
+hypothesis: an input switch to the **currently-active input** is a visible
+no-op, and a switch to an input with **no live signal** may be refused or
+reverted by the firmware. To verify: with BOTH sources connected and awake,
+switch between the two live inputs from the Windows app and observe. Update
+this section with the result.
 
 ### What is NOT known / unverified (Needs-decision)
 

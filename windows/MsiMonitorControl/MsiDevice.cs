@@ -177,25 +177,6 @@ public sealed class MsiDevice
         return retryResult;
     }
 
-    // Sourced from docs/PROTOCOL.md §HID interface: every frame begins 0x01 and the report ID is 0x01.
-    private const byte ReportId = 0x01;
-
-    /// <summary>
-    /// Builds the buffer handed to HidSharp from a PROTOCOL.md frame. Windows' HID stack consumes
-    /// <c>buffer[0]</c> as the report ID and delivers only the REMAINING bytes as report data,
-    /// whereas macOS (IOHIDDeviceSetReport) delivers the whole frame as data with the report ID
-    /// signalled separately — and the monitor firmware needs the frame's leading 0x01 to survive
-    /// into the data. So the report ID must be prepended here, NOT taken from the frame itself.
-    /// See docs/PROTOCOL.md §HID interface (report-ID framing).
-    /// </summary>
-    internal static byte[] ToWireReport(byte[] payload)
-    {
-        var wire = new byte[payload.Length + 1];
-        wire[0] = ReportId;
-        Array.Copy(payload, 0, wire, 1, payload.Length);
-        return wire;
-    }
-
     /// <summary>
     /// Attempts one HID Output report write. Returns true and sets <paramref name="result"/> to
     /// <see cref="MsiResult.Success"/> on success; returns false and sets it to
@@ -205,14 +186,18 @@ public sealed class MsiDevice
     {
         try
         {
-            // Per docs/PROTOCOL.md §HID interface: report type is Output.
-            // HidSharp's HidStream.Write() sends an Output report — correct here.
+            // Per docs/PROTOCOL.md §HID interface: report type is Output, and the frame is
+            // written AS-IS — its leading 0x01 doubles as the report-ID byte the Windows HID
+            // stack consumes. Hardware-confirmed via HidProbe on 2026-07-17 (variant B): the
+            // device's report descriptor declares numbered reports (IDs 1–4, 64-byte output),
+            // so [0x01][rest of frame, zero-padded by HidSharp to the report length] is the
+            // exact wire format the monitor acts on. Do NOT prepend an extra report-ID byte —
+            // that was v0.2.6, and it shifted the frame off by one (monitor silently ignored it).
             using var stream = _device!.Open();
             // Don't block indefinitely if the device stalls or stops responding.
             stream.WriteTimeout = 1000; // milliseconds
-            var wire = ToWireReport(payload);
-            stream.Write(wire);
-            DebugLog.Info($"Send {label}: OK ({wire.Length}-byte write = report ID 0x01 + {payload.Length}-byte frame).");
+            stream.Write(payload);
+            DebugLog.Info($"Send {label}: OK ({payload.Length}-byte frame written; report ID = frame[0] = 0x01).");
             result = MsiResult.Success;
             return true;
         }

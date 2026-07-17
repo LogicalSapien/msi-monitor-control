@@ -4,20 +4,32 @@
 
 ## Current focus
 
-**v0.2.7 — Windows send-path probe (diagnostic build).** The v0.2.6 framing fix
-did NOT resolve it on hardware: the user re-tested with v0.2.6.0 confirmed in the
-log (`54-byte write = report ID 0x01 + 53-byte frame`, sends OK) and the monitor
-still ignored the commands. So the Windows wire format is still wrong in some
-other dimension. v0.2.7 adds `HidProbe` (tray → "Probe HID send paths…"): dumps
-every matching device's path, report-length caps and RAW report descriptor to
-debug.log (ground truth for framing), then tries six transport/framing variants
-(WriteFile / HidD_SetOutputReport / HidD_SetFeature × 0x01/0x00/bare prefix)
-using PBP→PIP on/off as a visible, non-disruptive test signal, prompting the
-user per variant and logging the answers. Awaiting the user's probe run +
-debug.log. Temporary tooling — remove once the working variant is baked into
-`MsiDevice`.
+**v0.2.8 — wire format PROVEN; input-switch behaviour under investigation.**
+The v0.2.7 `HidProbe` run on the real MD342CQP (2026-07-17) settled the
+framing question empirically:
 
-**v0.2.6 — Windows report-ID framing fix (DID NOT FIX ON HARDWARE — see above).**
+- **Variant B — bare 53-byte frame via WriteFile (the original v0.2.5
+  behaviour) WORKS** — PBP→PIP visibly appeared. The captured report
+  descriptor (now in PROTOCOL.md) declares numbered reports IDs 1–4 with
+  64-byte input/output and NO feature reports; the frame's leading 0x01 IS the
+  report-ID byte, so writing the frame as-is is correct on both platforms.
+- v0.2.6's prepend (variant A) was WRONG — it shifted the frame and even PBP
+  stopped working. v0.2.8 reverts `MsiDevice` to the bare-frame write (with a
+  hardware-confirmed comment + a payload-begins-0x01 test) and corrects
+  PROTOCOL.md + the macOS comment.
+- **Implication: the transport never was the bug.** "Input not switching from
+  Windows" happened on a correct wire format while PBP acts fine on the same
+  path → input-switch-specific behaviour. Working hypothesis (PROTOCOL.md
+  §Input-switch behaviour): switching to the already-active input is a visible
+  no-op, and switching to a signal-less input may be refused/reverted.
+  **Next: controlled test — both sources connected AND awake, switch between
+  the two live inputs from the Windows app.**
+- `HidProbe` stays in the build until input switching is confirmed end-to-end;
+  remove it after.
+
+**v0.2.7 — send-path probe (diagnostic build, SHIPPED — did its job).**
+
+**v0.2.6 — report-ID prepend (WRONG on hardware, REVERTED in v0.2.8).**
 Field debugging on 2026-07-17 (user's Windows work laptop + real MD342CQP)
 showed every send logging `OK` while the monitor ignored the command. Root
 cause: Windows' HID stack consumes `buffer[0]` as the report ID and delivers

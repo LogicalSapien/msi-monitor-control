@@ -284,12 +284,11 @@ public final class MSIDevice {
         }
         guard let device = hidDevice else { return kIOReturnNoDevice }
 
-        // RESOLVED (v0.2.6): IOHIDDeviceSetReport delivers the buffer VERBATIM as
-        // report data — the frame's leading 0x01 is genuine data the firmware
-        // expects, and reportID being 0x01 too is coincidence. This mirrors the
-        // reference (Phaseowner/MSI-Display-Switch) and is hardware-confirmed.
-        // Windows differs (its HID stack consumes buffer[0] as the report ID) and
-        // must prepend — see docs/PROTOCOL.md § "Report-ID framing — RESOLVED".
+        // RESOLVED (v0.2.8, hardware-probed): the frame's leading 0x01 IS the
+        // report-ID byte — the device descriptor declares numbered reports
+        // (IDs 1–4, 64-byte output). Both platforms write the frame AS-IS; this
+        // call with reportID=1 mirrors the reference (Phaseowner) and is
+        // hardware-confirmed. See docs/PROTOCOL.md § "Report-ID framing".
         let reportID = CFIndex(bytes[0])
         return IOHIDDeviceSetReport(
             device,

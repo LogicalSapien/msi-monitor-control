@@ -15,7 +15,7 @@
       making field logs impossible to tie to a release (bitten during the
       2026-07-17 Windows debugging session).
     -->
-    <Version>0.2.7</Version>
+    <Version>0.2.8</Version>
   </PropertyGroup>
 
   <!--
