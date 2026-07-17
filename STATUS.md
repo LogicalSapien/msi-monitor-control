@@ -4,7 +4,20 @@
 
 ## Current focus
 
-**v0.2.6 — Windows report-ID framing fix (AWAITING HARDWARE VERIFICATION).**
+**v0.2.7 — Windows send-path probe (diagnostic build).** The v0.2.6 framing fix
+did NOT resolve it on hardware: the user re-tested with v0.2.6.0 confirmed in the
+log (`54-byte write = report ID 0x01 + 53-byte frame`, sends OK) and the monitor
+still ignored the commands. So the Windows wire format is still wrong in some
+other dimension. v0.2.7 adds `HidProbe` (tray → "Probe HID send paths…"): dumps
+every matching device's path, report-length caps and RAW report descriptor to
+debug.log (ground truth for framing), then tries six transport/framing variants
+(WriteFile / HidD_SetOutputReport / HidD_SetFeature × 0x01/0x00/bare prefix)
+using PBP→PIP on/off as a visible, non-disruptive test signal, prompting the
+user per variant and logging the answers. Awaiting the user's probe run +
+debug.log. Temporary tooling — remove once the working variant is baked into
+`MsiDevice`.
+
+**v0.2.6 — Windows report-ID framing fix (DID NOT FIX ON HARDWARE — see above).**
 Field debugging on 2026-07-17 (user's Windows work laptop + real MD342CQP)
 showed every send logging `OK` while the monitor ignored the command. Root
 cause: Windows' HID stack consumes `buffer[0]` as the report ID and delivers
