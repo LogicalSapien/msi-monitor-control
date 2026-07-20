@@ -16,6 +16,9 @@ Read the Global Constraints section first — it is binding on every task.
 
 ## House rules (open-source quality)
 - **British English everywhere**: docs, UI copy, code identifiers, commit messages.
+- **No internal ticket/tracker references anywhere** — commit messages, docs, code
+  comments. This is a public repo; internal IDs mean nothing to outside readers.
+  (Overrides the workspace-level ticket-reference rule.)
 - MIT licence, © LogicalSapien. Public repo — keep the code clean and reviewable.
 - Minimal diffs, minimal components. No over-engineering, no speculative flexibility.
 - Reverse-engineered payloads: **never invent bytes.** If a payload can't be found in the

@@ -51,7 +51,7 @@ only the REMAINING bytes as report data, so the 53-byte PROTOCOL.md frame
 arrived shifted one byte left (`35 62 …` instead of `01 35 …`). macOS
 (`IOHIDDeviceSetReport`) delivers the buffer verbatim — which is why the same
 payload works there. Fix: `MsiDevice.ToWireReport` prepends the report-ID byte
-(`0x01`) so the full frame survives as data ([MSI-6]). PROTOCOL.md's old
+(`0x01`) so the full frame survives as data. PROTOCOL.md's old
 "report-ID double-count" open question is now RESOLVED (it had the direction
 backwards). Also stamped `<Version>` in the csproj so debug.log identifies the
 build (was logging the .NET default `1.0.0.0`). **User must re-test input
@@ -59,7 +59,7 @@ switching from Windows with the v0.2.6 build** — the PnP enumeration during
 debugging confirmed a single HID collection, so device selection was ruled out.
 
 Before this: **all of v0.2.0 → v0.2.5 is committed, tagged, and released**
-(v0.2.5 = MSI-5 CmdShiftCtrl re-bake fixes, released 2026-06-29), each with
+(v0.2.5 = CmdShiftCtrl re-bake fixes, released 2026-06-29), each with
 green `release.yml` runs and all three assets published
 (`MSIMonitorControl-macOS.dmg`, `MSIMonitorControl-macOS.zip`,
 `MsiMonitorControl-Windows-x64.zip`).
