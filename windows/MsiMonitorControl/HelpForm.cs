@@ -194,6 +194,14 @@ KVM MAPPING NOTE
   DisplayPort input → Upstream KVM port (best-effort assumption).
   HDMI inputs do not auto-switch KVM (ambiguous — no fixed pairing).
 
+INPUT SWITCHING DOES NOTHING (KVM AND PBP WORK)
+  The monitor's firmware only honours INPUT-SWITCH commands that arrive
+  over its USB-C upstream. If this PC is connected via the USB-B
+  upstream (typical for HDMI/DisplayPort + USB-A cable setups), KVM and
+  PBP/PIP commands work but input switching is silently ignored.
+  Fix: connect this PC to the monitor's USB-C port (hardware-verified
+  on the MD342CQP).
+
 EDGE-SWITCH NOT WORKING
   • Confirm PBP mode is active (set via the app, not the OSD buttons).
     Edge-switch only tracks PBP state set through the app — OSD changes

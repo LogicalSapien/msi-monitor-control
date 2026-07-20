@@ -324,16 +324,36 @@ probe settled it empirically. The v0.2.5 wire format had been correct all
 along — the field report of "input not switching" on Windows was NOT a
 transport failure (see the input-switch behaviour note below).
 
-### Input-switch behaviour on Windows — under investigation (v0.2.8)
+### Input-switch commands are only honoured from the USB-C upstream — CONFIRMED (2026-07-20)
 
-With the wire format hardware-confirmed correct (above), the 2026-07-17 field
-report of "input not switching from Windows" is a command-level behaviour, not
-a transport failure — PBP→PIP demonstrably acts on the very same path. Working
-hypothesis: an input switch to the **currently-active input** is a visible
-no-op, and a switch to an input with **no live signal** may be refused or
-reverted by the firmware. To verify: with BOTH sources connected and awake,
-switch between the two live inputs from the Windows app and observe. Update
-this section with the result.
+**The MD342CQP firmware honours input-switch commands (feature `0x35 0x30`)
+only when they arrive over the USB-C upstream. KVM (`0x38 0x3E`) and PBP/PIP
+(`0x36 0x30`) commands are honoured from the USB-B upstream as well.**
+
+Hardware evidence (same Windows machine, same app build, same bytes):
+
+- Connected via **HDMI + USB-B**: input-switch commands silently ignored —
+  even with a live, awake source on the target input. KVM commands acted
+  (observable as the USB hub leaving the host), PBP→PIP acted (visible).
+- Connected via **USB-C**: input switching worked immediately, both
+  directions (Type-C ↔ HDMI 1).
+
+This retroactively explains the entire 2026-07-17/18 "Windows not switching"
+investigation: the transport and frames were correct throughout; the machine
+was simply commanding from the USB-B upstream. It also explains why macOS
+"always worked" — the Mac connects via USB-C.
+
+Note the KVM couples into this: the USB HID interface itself follows the KVM
+routing (a host only sees the HID device while the hub is routed to it), so in
+practice "connected via USB-C" also means the KVM is on the USB-C side at send
+time. Whether the gate is strictly *upstream port* or *current KVM routing*
+is indistinguishable from these observations; the practical rule is the same —
+**the machine on the USB-B upstream cannot switch inputs via HID.**
+
+Untested possible workaround for USB-B hosts: enter PBP (honoured from USB-B),
+set the MAIN window source (feature `0x36 0x32` — still unverified), then PBP
+off — if the main-source select is honoured, this would achieve an effective
+input switch. Verifying it would also close the last unknown protocol feature.
 
 ### What is NOT known / unverified (Needs-decision)
 

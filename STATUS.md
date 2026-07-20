@@ -4,7 +4,21 @@
 
 ## Current focus
 
-**v0.2.8 — wire format PROVEN; input-switch behaviour under investigation.**
+**v0.2.9 — Windows switching mystery SOLVED: firmware upstream gate.**
+Hardware-confirmed 2026-07-20 (same machine, same build, same bytes): the
+MD342CQP only honours **input-switch** commands arriving over the **USB-C
+upstream**; KVM and PBP/PIP commands are honoured from the USB-B upstream too.
+Windows on HDMI+USB-B → input switching silently ignored even with a live
+target (KVM/PBP fine); the same laptop moved to USB-C → switching worked both
+ways immediately. The app was never at fault; the whole 2026-07-17/18 hunt is
+explained (macOS "always worked" because the Mac is on USB-C). Documented in
+PROTOCOL.md (new §upstream gate), README (Inputs quirk box), and both apps'
+in-app Help troubleshooting. HidProbe removed (job done). OPEN IDEA (untested,
+in PROTOCOL.md): a USB-B host might achieve an effective input switch via
+PBP-on → set MAIN window source (`0x36 0x32`, still unverified) → PBP-off;
+verifying would also close the last unknown protocol feature.
+
+**v0.2.8 — wire format PROVEN (HidProbe variant B; see below).**
 The v0.2.7 `HidProbe` run on the real MD342CQP (2026-07-17) settled the
 framing question empirically:
 

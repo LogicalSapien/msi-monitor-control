@@ -32,6 +32,13 @@ live status, launch-at-login, and a PBP edge-switch KVM feature.
 
 Switch between all four inputs: **HDMI 1**, **HDMI 2**, **Type-C**, **DisplayPort**.
 
+> **⚠️ Firmware quirk (hardware-verified on the MD342CQP):** the monitor only
+> honours input-switch commands sent over its **USB-C upstream**. A machine
+> connected via the **USB-B upstream** (the usual pairing with HDMI or
+> DisplayPort) can control the KVM and PBP/PIP, but its input-switch commands
+> are silently ignored. If you want to switch inputs from a given machine,
+> connect that machine to the monitor's USB-C port.
+
 ### KVM
 
 Switch the USB KVM hub between **USB-C** (the Type-C cable's built-in hub),

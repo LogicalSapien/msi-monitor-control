@@ -134,12 +134,6 @@ internal sealed class TrayApp : ApplicationContext
         logItem.Click += (_, _) => DebugLog.OpenLogFolder();
         menu.Items.Add(logItem);
 
-        // Temporary v0.2.7 field diagnostic — remove once the working Windows wire format
-        // is confirmed and baked into MsiDevice (see HidProbe).
-        var probeItem = new ToolStripMenuItem("Probe HID send paths… (diagnostic)");
-        probeItem.Click += (_, _) => HidProbe.Run();
-        menu.Items.Add(probeItem);
-
         var exitItem = new ToolStripMenuItem("Exit");
         exitItem.Click += (_, _) => ExitApp();
         menu.Items.Add(exitItem);

@@ -146,6 +146,10 @@ struct HelpView: View {
                 body: "USB-C KVM port = the Type-C cable. Upstream KVM port = the USB-B cable used with DisplayPort. Auto = monitor decides. If your machines are on different ports, the KVM → Auto mode may work better."
             )
             troubleItem(
+                title: "Input switching does nothing (KVM and PBP work)",
+                body: "The monitor's firmware only honours input-switch commands that arrive over its USB-C upstream. A machine connected via the USB-B upstream can control KVM and PBP/PIP, but its input-switch commands are silently ignored — connect that machine via the monitor's USB-C port instead (hardware-verified on the MD342CQP)."
+            )
+            troubleItem(
                 title: "Debug log",
                 body: "If the app behaves unexpectedly, open the debug log for details: menu bar → Reveal Debug Log… The log is at:\n  ~/Library/Application Support/LogicalSapien/MSIMonitorControl/debug.log"
             )
